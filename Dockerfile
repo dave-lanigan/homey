@@ -7,19 +7,6 @@ COPY ui/package.json ui/bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY ui/ .
-
-# Public Clerk key is baked into the static build. Leave API base empty for same-origin.
-ARG NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-ARG NUXT_PUBLIC_API_BASE=
-ENV NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
-    NUXT_PUBLIC_API_BASE=$NUXT_PUBLIC_API_BASE \
-    NUXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in \
-    NUXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-
-# Fail fast: Cloud Build must pass --build-arg NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
-RUN test -n "$NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
-    || (echo "NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY build-arg is required" >&2 && exit 1)
-
 RUN bun run generate
 
 # ---- API runtime ----

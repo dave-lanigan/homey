@@ -17,6 +17,14 @@ export default defineNuxtConfig({
   ],
 
   clerk: {
+    // Publishable key is public by design; keep it in source so Cloud Build
+    // does not need a build-time env var. Do not put the secret key here.
+    publishableKey: 'pk_test_ZGFyaW5nLWFsYmFjb3JlLTY0ODYuY2xlcmsuYWNjb3VudHMuZGV2JA',
+    signInUrl: '/sign-in',
+    signUpUrl: '/sign-up',
+    // SPA (ssr: false): skip server middleware so `nuxt generate` does not
+    // require NUXT_CLERK_SECRET_KEY at build time.
+    skipServerMiddleware: true,
     appearance: {
       theme: shadcn,
       cssLayerName: 'clerk',
