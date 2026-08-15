@@ -9,7 +9,7 @@ function toggleColorMode() {
 </script>
 
 <template>
-  <header class="absolute top-0 inset-x-0 h-14 border-b border-border/40 z-10 backdrop-blur bg-background/80 flex items-center justify-between px-4">
+  <header class="absolute top-0 inset-x-0 h-14 border-b border-border/40 z-10 backdrop-blur bg-background/80 flex items-center justify-between pl-14 pr-4 lg:px-4">
     <div class="flex items-center gap-3 min-w-0">
       <slot name="title" />
     </div>

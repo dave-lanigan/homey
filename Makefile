@@ -24,4 +24,4 @@ deploy:
 	--memory 1Gi \
 	--cpu 1 \
 	--timeout 300 \
-	--set-env-vars "GOOGLE_API_KEY=${GOOGLE_API_KEY},DB_URL=${DB_URL},DB_TOKEN=${DB_TOKEN}"
+	--set-env-vars "GOOGLE_API_KEY=${GOOGLE_API_KEY},DB_URL=${DB_URL},DB_TOKEN=${DB_TOKEN},SEARCH_MAX_LISTINGS=${SEARCH_MAX_LISTINGS},SEARCH_TOP_K=${SEARCH_TOP_K}"

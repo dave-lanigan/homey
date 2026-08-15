@@ -6,6 +6,7 @@ const loading = ref(false)
 const chatId = crypto.randomUUID()
 const search = useState<SearchParams>('chat-search', () => ({ room_type: 'apartment', guests: 2, amenities: [], keywords: [] }))
 const attachedImage = useState<string | null>('chat-attached-image', () => null)
+const searchForm = ref<{ close: () => void } | null>(null)
 
 const { createChat } = useChats()
 
@@ -32,6 +33,7 @@ function onSubmit() {
     || (attachedImage.value ? 'Find listings similar to this image' : '')
     || (search.value.location ? 'Updating Airbnb Filters' : '')
   if (text || attachedImage.value) {
+    searchForm.value?.close()
     createNewChat(text, attachedImage.value)
   }
 }
@@ -84,7 +86,7 @@ const quickChats = [
         />
 
         <!-- Search Form for Pre-configuring search parameters -->
-        <ChatSearchForm v-model="search" />
+        <ChatSearchForm ref="searchForm" v-model="search" />
 
         <div class="flex flex-wrap gap-2">
           <Button

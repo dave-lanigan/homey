@@ -46,7 +46,10 @@ def tool_usage_workflow(ctx: RunContext[AirbnbFilters]) -> str:
         "- `smart_search_listings` — semantic/vibe search; opens structured listing results\n\n"
         "Workflow:\n"
         "1. If the user mentions location, dates, budget, guests, amenities, or keywords, "
-        "call `update_search_filters` first (only fields they mentioned).\n"
+        "call `update_search_filters` first (only fields they mentioned). "
+        "Put known Airbnb amenities (pool, gym, wifi, workspace, …) in `amenities`. "
+        "Put anything else they want (balcony, patio, sauna, ocean view, …) in `keywords` — "
+        "do not drop features just because they are not amenity filters.\n"
         "2. You need location, checkin, and nights before searching — ask if missing.\n"
         "3. When they want results (or confirm they want to search), call "
         "`search_airbnb` for normal filter searches, or `smart_search_listings` "
@@ -68,27 +71,3 @@ def add_filters_to_context(ctx: RunContext[AirbnbFilters]) -> str:
         return "The user has not set any search filters yet."
     lines = [f"- {key}: {value}" for key, value in values.items()]
     return "The user's current search filters are:\n" + "\n".join(lines)
-
-
-# @agent.instructions
-# def parse_user_input_for_additional_keywords(user_input: str, context: RunContext):
-#     """
-#     Parse the user's input to extract additional keywords for the search.
-#     """
-#     # Implement logic to extract keywords from user input
-#     # For example, you could use NLP techniques or simple keyword extraction
-#     additional_keywords = user_input.split()  # Placeholder logic
-#     return additional_keywords
-
-
-# @agent.tool
-# def simple_listings_filter_with_conversational_context(filters: AirbnbFilters, context: RunContext):
-#     """
-#     Filter Airbnb listings based on the provided filters.
-#     """
-#     return filter_listings_tool(filters, context)
-
-
-# @agent.tool
-# def search()
-#     return smart_search_listings_tool(context)

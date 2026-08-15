@@ -18,7 +18,13 @@ import {
 import { ScrollArea } from '~/components/ui/scroll-area'
 const model = defineModel<SearchParams>({ default: () => ({ amenities: [], keywords: [] }) })
 
-const open = ref(true)
+const open = ref(false)
+
+function close() {
+  open.value = false
+}
+
+defineExpose({ close })
 
 function numField(key: 'nights' | 'min_price' | 'max_price' | 'guests') {
   return computed<string>({

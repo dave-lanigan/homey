@@ -19,7 +19,7 @@ import asyncio
 from pydantic_ai import ModelRetry, RunContext, Tool
 
 from api.tools.embedding_search import SearchResult, index_listings, search_listings
-from api.tools.filter import AirbnbFilters, run_search
+from api.tools.filter import AirbnbFilters, DEFAULT_TOP_K, run_search
 from api.tools.vision_rerank import rerank_with_vision_async
 
 # Fetch 2x the requested results so there is headroom for reranking.
@@ -88,15 +88,20 @@ async def smart_search_listings(
             "nights (or fill them in the search form) before calling this tool again."
         )
 
-    top_k = max(1, params.top_k or 10)
+    top_k = max(1, params.top_k or DEFAULT_TOP_K)
     use_vision = use_vision or params.use_vision
     query = (query or "").strip()
     if not query and params.keywords:
         query = ", ".join(params.keywords)
 
     try:
-        # Step 1: scrape candidate listings via the existing filter search.
-        response = await run_search(params, progress=params.report_progress)
+        # Step 1: scrape candidate listings via the existing filter search. Full
+        # photo galleries are only harvested when the vision step will use them.
+        response = await run_search(
+            params,
+            progress=params.report_progress,
+            harvest_photos=bool(use_vision or params._query_image),
+        )
         if not response.listings:
             return _format_results([], top_k, params.location)
 

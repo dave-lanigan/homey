@@ -15,6 +15,7 @@ const messages = computed(() => chat.value?.messages ?? [])
 const input = ref('')
 const search = useState<SearchParams>('chat-search', () => ({ room_type: 'apartment', guests: 2, amenities: [], keywords: [] }))
 const attachedImage = useState<string | null>('chat-attached-image', () => null)
+const searchForm = ref<{ close: () => void } | null>(null)
 const isStreaming = ref(false)
 const processingStatus = ref<string | null>(null)
 const error = ref<Error | null>(null)
@@ -142,6 +143,7 @@ async function sendMessage(text?: string) {
 
 function handleSubmit() {
   if (!isStreaming.value) {
+    searchForm.value?.close()
     sendMessage(input.value)
   }
 }
@@ -243,7 +245,7 @@ onMounted(() => {
             @reload="sendMessage"
           />
 
-          <ChatSearchForm v-model="search" />
+          <ChatSearchForm ref="searchForm" v-model="search" />
         </div>
       </div>
     </div>
