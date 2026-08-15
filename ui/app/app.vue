@@ -4,16 +4,21 @@ import { TooltipProvider } from '~/components/ui/tooltip'
 
 const colorMode = useColorMode()
 
-const color = computed(() => colorMode.value === 'dark' ? '#1b1718' : 'white')
+const color = computed(() => colorMode.value === 'dark' ? '#1b1718' : '#ffffff')
 
 useHead({
   meta: [
     { charset: 'utf-8' },
-    { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-    { key: 'theme-color', name: 'theme-color', content: color }
+    { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+    { key: 'theme-color', name: 'theme-color', content: color },
+    { name: 'mobile-web-app-capable', content: 'yes' },
+    { name: 'apple-mobile-web-app-capable', content: 'yes' },
+    { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+    { name: 'apple-mobile-web-app-title', content: 'Homey' },
   ],
   link: [
-    { rel: 'icon', href: '/favicon.ico' }
+    { rel: 'icon', href: '/favicon.ico' },
+    { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
   ],
   htmlAttrs: {
     lang: 'en'
@@ -33,6 +38,7 @@ useSeoMeta({
 </script>
 
 <template>
+  <VitePwaManifest />
   <TooltipProvider :delay-duration="200">
     <NuxtLoadingIndicator color="var(--primary)" />
 

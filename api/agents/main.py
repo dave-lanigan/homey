@@ -6,6 +6,11 @@ from dotenv import load_dotenv
 
 from api.tools.agent_search import smart_search_listings_tool
 from api.tools.filter import AirbnbFilters, filter_listings_tool, update_search_filters_tool
+from api.agents.vars import AIRBNB_AGENT_INSTRUCTIONS
+from pydantic_ai.capabilities.hooks import Hooks
+from pydantic_ai.models import ModelRequestContext
+
+hooks = Hooks()
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
@@ -27,40 +32,25 @@ agent = Agent(
         "by interpreting the user's natural language requests and executing searches that match their intent",
         "using the additional context of the users descriptions from text and images."
     ),
+    instructions=AIRBNB_AGENT_INSTRUCTIONS,
     deps_type=AirbnbFilters,
     tools=[
         update_search_filters_tool,
         filter_listings_tool,
         smart_search_listings_tool,
     ],
+    capabilities=[hooks],
 )
 
 
 @agent.instructions
-def tool_usage_workflow(ctx: RunContext[AirbnbFilters]) -> str:
-    """Tell the model when to search and how to show listings in chat."""
-    return (
-        "Tools (use these exact names):\n"
-        "- `update_search_filters` — sync chat criteria into the search form\n"
-        "- `search_airbnb` — structured filter search; opens structured listing results\n"
-        "- `smart_search_listings` — semantic/vibe search; opens structured listing results\n\n"
-        "Workflow:\n"
-        "1. If the user mentions location, dates, budget, guests, amenities, or keywords, "
-        "call `update_search_filters` first (only fields they mentioned). "
-        "Put known Airbnb amenities (pool, gym, wifi, workspace, …) in `amenities`. "
-        "Put anything else they want (balcony, patio, sauna, ocean view, …) in `keywords` — "
-        "do not drop features just because they are not amenity filters.\n"
-        "2. You need location, checkin, and nights before searching — ask if missing.\n"
-        "3. When they want results (or confirm they want to search), call "
-        "`search_airbnb` for normal filter searches, or `smart_search_listings` "
-        "for vibe/style/semantic requests (and whenever the user attaches a "
-        "reference image). Treat an attached image and their written description "
-        "as complementary search context.\n"
-        "4. After a search tool returns, reply with only a short 1–2 sentence summary. "
-        "The UI displays the structured listings separately, so do not repeat them as "
-        "markdown, links, or JSON.\n"
-        "5. If nothing is found, tell the user and suggest adjusting criteria."
-    )
+def summarize_search_criteria(ctx: RunContext[AirbnbFilters]) -> str:
+    """Summarize the user's search criteria."""
+    return """
+    If the user has given you enough search parameters for a search,
+    regardless of the input from the user, you should summarize the currently giving search criteria
+    and ask if the user is ready for a search.
+    """
 
 
 @agent.instructions
@@ -71,3 +61,36 @@ def add_filters_to_context(ctx: RunContext[AirbnbFilters]) -> str:
         return "The user has not set any search filters yet."
     lines = [f"- {key}: {value}" for key, value in values.items()]
     return "The user's current search filters are:\n" + "\n".join(lines)
+
+
+@agent.instructions
+def route_visitor_policy_requests(ctx: RunContext[AirbnbFilters]) -> str:
+    """Route visitor and house-rule preferences through semantic search."""
+    return """
+    Treat requests about visitors, guests who are not part of the booking, or
+    house rules about additional people as natural-language search requests.
+    This includes but is not limited to wording such as:
+    - "allow visitors", "can I have friends over", or "friends can visit"
+    - "overnight guests are allowed" or "my partner may stay over"
+    - "no visitor restrictions" or "guests can come and go"
+    - "exclude places that don't allow visitors"
+    - "avoid listings with no guests/visitors", "no parties", or similar
+      house-rule language
+    Always use smart_search_listings for these requests and pass the user's
+    wording unchanged in the query.
+    For positive requests such as "and that allows visitors", a listing whose
+    rules explicitly say visitors are not allowed is a contradictory result,
+    not a match.
+    Do not claim that visitor policies are unsupported, and do not redirect the
+    user to an unrelated preference. Do not add visitor-policy text to the
+    structured search filters.
+    """
+
+
+@hooks.on.before_model_request
+async def debug_model_request(ctx, request_context: ModelRequestContext):
+    print("\n===== OUTGOING LLM REQUEST =====", flush=True)
+    for message in request_context.messages:
+        print(message, flush=True)
+    print("===== END REQUEST =====\n", flush=True)
+    return request_context

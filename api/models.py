@@ -39,3 +39,14 @@ class Embedding(SQLModel, table=True):
     task_type: str = ""
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+class SearchCache(SQLModel, table=True):
+    """Cached Airbnb SERP URL sets keyed by structured filter fingerprint."""
+
+    __tablename__ = "search_cache"
+
+    filter_key: str = Field(primary_key=True)
+    search_url: str = ""
+    urls: str = "[]"
+    created_at: datetime = Field(default_factory=utcnow)

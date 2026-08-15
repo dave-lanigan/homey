@@ -8,6 +8,7 @@ via SQLModel, keyed by listing URL.
 
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,11 +21,13 @@ from sqlmodel import select
 
 from api.db import get_session, init_db
 from api.models import Embedding, Listing, utcnow
+from api.tools.listing_urls import normalize_listing_url
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
 EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-2")
 EMBED_CONCURRENCY = max(1, int(os.getenv("GEMINI_EMBED_CONCURRENCY", "5")))
+EMBED_BATCH_SIZE = max(1, int(os.getenv("GEMINI_EMBED_BATCH_SIZE", "8")))
 
 DOCUMENT_TASK_TYPE = "RETRIEVAL_DOCUMENT"
 QUERY_TASK_TYPE = "RETRIEVAL_QUERY"
@@ -58,15 +61,26 @@ class SearchResult:
 def store_listings(listings: list[dict]) -> int:
     """Upsert listing rows by URL. Returns the number of rows written."""
     init_db()
-    written = 0
-    with get_session() as session:
-        for l in listings:
-            url = l.get("url") or l.get("listing_id")
-            if not url:
-                continue
+    prepared = {}
+    for listing in listings:
+        raw_url = listing.get("url") or listing.get("listing_id")
+        url = normalize_listing_url(raw_url)
+        if not url:
+            continue
+        listing = {**listing, "url": url, "listing_id": url}
+        prepared[url] = listing
 
-            row = session.get(Listing, url)
-            now = utcnow()
+    if not prepared:
+        return 0
+
+    with get_session() as session:
+        existing = session.exec(
+            select(Listing).where(Listing.url.in_(list(prepared)))
+        ).all()
+        existing_by_url = {row.url: row for row in existing}
+        now = utcnow()
+
+        for url, l in prepared.items():
             fields = {
                 "title": l.get("title", ""),
                 "city": l.get("city", ""),
@@ -81,14 +95,14 @@ def store_listings(listings: list[dict]) -> int:
                 "matched_keywords": json.dumps(l.get("matched_keywords") or []),
                 "updated_at": now,
             }
+            row = existing_by_url.get(url)
             if row is None:
                 session.add(Listing(url=url, created_at=now, **fields))
             else:
                 for key, value in fields.items():
                     setattr(row, key, value)
-            written += 1
         session.commit()
-    return written
+    return len(prepared)
 
 
 def embedded_urls() -> set[str]:
@@ -132,40 +146,99 @@ def _store_embedding(
         session.commit()
 
 
+def _store_embeddings(
+    embeddings: list[tuple[str, list]],
+    model: str,
+    task_type: EmbeddingTaskType,
+) -> None:
+    """Upsert multiple embeddings in one Turso transaction."""
+    if not embeddings:
+        return
+
+    init_db()
+    urls = [url for url, _ in embeddings]
+    with get_session() as session:
+        existing = session.exec(
+            select(Embedding).where(Embedding.url.in_(urls))
+        ).all()
+        existing_by_url = {row.url: row for row in existing}
+        now = utcnow()
+
+        for url, vector in embeddings:
+            row = existing_by_url.get(url)
+            if row is None:
+                session.add(
+                    Embedding(
+                        url=url,
+                        vector=json.dumps(vector),
+                        model=model,
+                        task_type=task_type,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.vector = json.dumps(vector)
+                row.model = model
+                row.task_type = task_type
+                row.updated_at = now
+        session.commit()
+
+
 def load_indexed_listings() -> list[dict]:
-    """Return all listings that have an embedding, with their vectors."""
+    """Return all listings that have an embedding, with their vectors.
+
+    Matching is by canonical room URL so older rows that still include Airbnb
+    query params continue to pair with newer normalized listing URLs.
+    """
     init_db()
     with get_session() as session:
-        rows = session.exec(
-            select(Listing, Embedding)
-            .join(Embedding, Embedding.url == Listing.url)
-            .where(
+        listing_rows = session.exec(select(Listing)).all()
+        embedding_rows = session.exec(
+            select(Embedding).where(
                 Embedding.model == EMBED_MODEL,
                 Embedding.task_type == DOCUMENT_TASK_TYPE,
             )
         ).all()
 
-        listings = []
-        for listing, embedding in rows:
-            listings.append(
-                {
-                    "listing_id": listing.url,
-                    "url": listing.url,
-                    "title": listing.title,
-                    "city": listing.city,
-                    "description": listing.description,
-                    "price": listing.price,
-                    "rating": listing.rating,
-                    "amenities": json.loads(listing.amenities),
-                    "house_rules": json.loads(listing.house_rules),
-                    "image_url": listing.image_url,
-                    "image_urls": json.loads(listing.image_urls),
-                    "full_text": listing.full_text,
-                    "matched_keywords": json.loads(listing.matched_keywords),
-                    "embedding": json.loads(embedding.vector),
-                }
-            )
-        return listings
+    listings_by_norm: dict[str, Listing] = {}
+    for listing in listing_rows:
+        norm = normalize_listing_url(listing.url)
+        prior = listings_by_norm.get(norm)
+        if prior is None or (listing.updated_at or listing.created_at) >= (
+            prior.updated_at or prior.created_at
+        ):
+            listings_by_norm[norm] = listing
+
+    listings = []
+    seen: set[str] = set()
+    for embedding in embedding_rows:
+        norm = normalize_listing_url(embedding.url)
+        if not norm or norm in seen:
+            continue
+        listing = listings_by_norm.get(norm)
+        if listing is None:
+            continue
+        seen.add(norm)
+        listings.append(
+            {
+                "listing_id": norm,
+                "url": norm,
+                "title": listing.title,
+                "city": listing.city,
+                "description": listing.description,
+                "price": listing.price,
+                "rating": listing.rating,
+                "amenities": json.loads(listing.amenities),
+                "house_rules": json.loads(listing.house_rules),
+                "image_url": listing.image_url,
+                "image_urls": json.loads(listing.image_urls),
+                "full_text": listing.full_text,
+                "matched_keywords": json.loads(listing.matched_keywords),
+                "embedding": json.loads(embedding.vector),
+            }
+        )
+    return listings
 
 
 def clear_index() -> None:
@@ -296,6 +369,50 @@ def _locations_match(query: str, listing_city: str) -> bool:
     )
 
 
+_VISITOR_ALLOWED_QUERY_RE = re.compile(
+    r"(?:allow(?:s|ed)?|permit(?:s|ted)?|welcome)\s+"
+    r"(?:for\s+)?(?:visitors?|guests?)"
+    r"|(?:visitors?|guests?)\s+(?:are\s+)?"
+    r"(?:allowed|permitted|welcome)",
+    re.IGNORECASE,
+)
+_VISITOR_NEGATED_QUERY_RE = re.compile(
+    r"(?:don['’]t|do\s+not|not|without|exclude)"
+    r".{0,30}(?:allow|permit|welcome).{0,20}(?:visitors?|guests?)"
+    r"|(?:no|prohibit(?:ed)?|forbid(?:den)?)\s+"
+    r"(?:visitors?|guests?)",
+    re.IGNORECASE,
+)
+_VISITOR_PROHIBITION_RE = re.compile(
+    r"(?:visitors?|guests?)\s+(?:are\s+)?"
+    r"(?:not\s+allowed|not\s+permitted|prohibited|forbidden|not\s+welcome)"
+    r"|(?:no|not\s+allowed(?:\s+for)?)\s+"
+    r"(?:visitors?|guests?)"
+    r"|(?:do\s+not|don['’]t)\s+allow\s+"
+    r"(?:visitors?|guests?)",
+    re.IGNORECASE,
+)
+
+
+def _query_requires_allowed_visitors(query: str | None) -> bool:
+    """Detect positive visitor-access intent without treating it as a form filter."""
+    if not query:
+        return False
+    return bool(
+        _VISITOR_ALLOWED_QUERY_RE.search(query)
+        and not _VISITOR_NEGATED_QUERY_RE.search(query)
+    )
+
+
+def _listing_prohibits_visitors(listing: dict) -> bool:
+    """Detect an explicit visitor prohibition in scraped house-rule text."""
+    searchable = " ".join(
+        str(listing.get(field) or "")
+        for field in ("house_rules", "full_text", "description")
+    )
+    return bool(_VISITOR_PROHIBITION_RE.search(searchable))
+
+
 # ============================================================================
 # Indexing
 # ============================================================================
@@ -323,6 +440,33 @@ def create_listing_embedding(listing: dict, client: genai.Client = None) -> list
     return embed_text(text_to_embed, DOCUMENT_TASK_TYPE, client)
 
 
+def create_listing_embeddings(
+    listings: list[dict], client: genai.Client = None
+) -> list[list]:
+    """Embed multiple listings with one Gemini request per listing.
+
+    ``gemini-embedding-2`` returns one embedding for a single ``contents``
+    value. Passing several strings in one ``contents`` list produces one
+    combined embedding rather than one vector per listing.
+    """
+    if not listings:
+        return []
+    if client is None:
+        client = genai.Client()
+
+    # Keep one listing per API request, but issue those independent requests
+    # concurrently so avoiding the broken multi-input response is not slow.
+    with ThreadPoolExecutor(
+        max_workers=min(EMBED_CONCURRENCY, len(listings))
+    ) as executor:
+        return list(
+            executor.map(
+                lambda listing: create_listing_embedding(listing, client),
+                listings,
+            )
+        )
+
+
 def index_listings(listings: list[dict], client: genai.Client = None, force: bool = False) -> int:
     """
     Index a batch of listings into Turso.
@@ -336,31 +480,37 @@ def index_listings(listings: list[dict], client: genai.Client = None, force: boo
 
     store_listings(listings)
 
-    seen = set() if force else embedded_urls()
+    seen = set() if force else {normalize_listing_url(url) for url in embedded_urls()}
     pending: list[tuple[str, dict]] = []
     for listing in listings:
-        url = listing.get("url") or listing.get("listing_id")
+        raw_url = listing.get("url") or listing.get("listing_id")
+        url = normalize_listing_url(raw_url)
         if not url:
             continue
+        listing = {**listing, "url": url, "listing_id": url}
         if url in seen:
             continue
         pending.append((url, listing))
         seen.add(url)
 
-    def create_pending_embedding(item: tuple[str, dict]) -> tuple[str, list]:
-        url, listing = item
-        return url, create_listing_embedding(listing, client)
+    batches = [
+        pending[start : start + EMBED_BATCH_SIZE]
+        for start in range(0, len(pending), EMBED_BATCH_SIZE)
+    ]
 
-    # Gemini requests run concurrently; Turso writes stay serialized afterward.
-    with ThreadPoolExecutor(max_workers=min(EMBED_CONCURRENCY, len(pending) or 1)) as executor:
-        generated = executor.map(create_pending_embedding, pending)
-        for url, vector in generated:
-            _store_embedding(
-                url,
-                vector,
-                EMBED_MODEL,
-                DOCUMENT_TASK_TYPE,
-            )
+    def create_pending_batch(batch: list[tuple[str, dict]]) -> list[tuple[str, list]]:
+        vectors = create_listing_embeddings([listing for _, listing in batch], client)
+        return [(url, vector) for (url, _), vector in zip(batch, vectors)]
+
+    # Gemini batches run concurrently; write all generated vectors in one
+    # transaction instead of opening and committing one Turso session per URL.
+    with ThreadPoolExecutor(max_workers=min(EMBED_CONCURRENCY, len(batches) or 1)) as executor:
+        generated = [
+            item
+            for batch_result in executor.map(create_pending_batch, batches)
+            for item in batch_result
+        ]
+    _store_embeddings(generated, EMBED_MODEL, DOCUMENT_TASK_TYPE)
 
     return len(pending)
 
@@ -413,11 +563,21 @@ def search_listings(
     if not indexed:
         raise ValueError("No indexed listings. Run the search flow first to index listings.")
 
+    url_filter = None
+    if urls is not None:
+        url_filter = {normalize_listing_url(url) for url in urls if url}
+
+    exclude_visitor_prohibitions = _query_requires_allowed_visitors(query_text)
     scores = []
     for listing in indexed:
+        if (
+            exclude_visitor_prohibitions
+            and _listing_prohibits_visitors(listing)
+        ):
+            continue
         if city and listing["city"] and not _locations_match(city, listing["city"]):
             continue
-        if urls is not None and listing["url"] not in urls:
+        if url_filter is not None and normalize_listing_url(listing["url"]) not in url_filter:
             continue
         similarity = cosine_similarity(query_embedding, listing["embedding"])
         scores.append((listing, similarity))

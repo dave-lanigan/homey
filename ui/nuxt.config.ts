@@ -13,7 +13,8 @@ export default defineNuxtConfig({
     'shadcn-nuxt',
     '@nuxt/icon',
     '@nuxtjs/color-mode',
-    '@comark/nuxt'
+    '@comark/nuxt',
+    '@vite-pwa/nuxt',
   ],
 
   clerk: {
@@ -40,6 +41,66 @@ export default defineNuxtConfig({
     classSuffix: ''
   },
 
+  pwa: {
+    registerType: 'autoUpdate',
+    manifest: {
+      id: '/',
+      name: 'Homey',
+      short_name: 'Homey',
+      description: 'Your friendly AI Airbnb assistant — find the perfect stay.',
+      theme_color: '#1b1718',
+      background_color: '#1b1718',
+      display: 'standalone',
+      orientation: 'portrait-primary',
+      start_url: '/',
+      scope: '/',
+      lang: 'en',
+      categories: ['travel', 'lifestyle'],
+      icons: [
+        {
+          src: '/pwa-192x192.png',
+          sizes: '192x192',
+          type: 'image/png',
+          purpose: 'any',
+        },
+        {
+          src: '/pwa-512x512.png',
+          sizes: '512x512',
+          type: 'image/png',
+          purpose: 'any',
+        },
+        {
+          src: '/pwa-512x512-maskable.png',
+          sizes: '512x512',
+          type: 'image/png',
+          purpose: 'maskable',
+        },
+      ],
+    },
+    workbox: {
+      navigateFallback: '/',
+      navigateFallbackDenylist: [/^\/api\//],
+      globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2,webmanifest}'],
+      // Clerk + AI SDK client chunks exceed Workbox's 2 MiB default.
+      maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      runtimeCaching: [
+        {
+          urlPattern: /\/api\//,
+          handler: 'NetworkOnly',
+        },
+      ],
+    },
+    client: {
+      installPrompt: true,
+      periodicSyncForUpdates: 3600,
+    },
+    devOptions: {
+      // Keep off by default — Chrome installability is validated against a
+      // production build (`bun run generate` + served over HTTPS/localhost).
+      enabled: false,
+    },
+  },
+
   vite: {
     plugins: [
       tailwindcss()
@@ -55,6 +116,14 @@ export default defineNuxtConfig({
   },
 
   css: ['~/assets/css/main.css'],
+
+  app: {
+    head: {
+      link: [
+        { rel: 'manifest', href: '/manifest.webmanifest' },
+      ],
+    },
+  },
 
   experimental: {
     viewTransition: true

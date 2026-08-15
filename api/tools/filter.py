@@ -44,6 +44,8 @@ from pydantic_ai import ModelRetry, RunContext, Tool
 from playwright.async_api import async_playwright
 from playwright.sync_api import sync_playwright
 
+from api.tools.listing_urls import normalize_listing_url
+
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
 RoomTypeName = Literal[
@@ -505,11 +507,10 @@ def get_listing_urls(page, url: str, max_listings: int = 20, max_pages: int = 5)
                 # Clean up the URL
                 if href.startswith("/"):
                     href = "https://www.airbnb.com" + href
-                # Remove query params for deduplication
-                base_url = href.split("?")[0]
+                base_url = normalize_listing_url(href)
                 if base_url not in seen_urls:
                     seen_urls.add(base_url)
-                    all_listings.append(href)
+                    all_listings.append(base_url)
                     page_listings += 1
                     if len(all_listings) >= max_listings:
                         print(f"   ✓ Reached max_listings ({max_listings})")
@@ -631,10 +632,10 @@ async def get_listing_urls_async(page, url: str, max_listings: int = 20, max_pag
             if href and "/rooms/" in href:
                 if href.startswith("/"):
                     href = "https://www.airbnb.com" + href
-                base_url = href.split("?")[0]
+                base_url = normalize_listing_url(href)
                 if base_url not in seen_urls:
                     seen_urls.add(base_url)
-                    all_listings.append(href)
+                    all_listings.append(base_url)
                     page_listings += 1
                     if len(all_listings) >= max_listings:
                         print(f"   ✓ Reached max_listings ({max_listings})")
@@ -669,7 +670,7 @@ def get_listing_details(page, listing_url: str) -> dict:
         print("   ⚠️ Navigation timeout, continuing anyway...")
 
     details = {
-        "url": listing_url,
+        "url": normalize_listing_url(listing_url),
         "title": "",
         "description": "",
         "amenities": [],
@@ -886,6 +887,7 @@ def _extract_pdp_details(raw: str, data: dict) -> dict:
         "title": "",
         "description": "",
         "amenities": [],
+        "room_tours": [],
         "house_rules": [],
         "host_info": "",
         "price": None,
@@ -987,6 +989,61 @@ def _extract_pdp_details(raw: str, data: dict) -> dict:
                     ]
                 out["house_rules"] = rules
 
+    # Airbnb's complete "About this space" copy lives in the description modal,
+    # not in the short SEO/meta description. Collect every HTML text block from
+    # that modal so search sees the space details and FAQ content.
+    description_parts = []
+    for d in _iter_dicts(data):
+        if (
+            d.get("modalTitle") == "About this space"
+            and d.get("longDescriptionHtml")
+        ):
+            long_description = d["longDescriptionHtml"]
+            html_text = (
+                long_description.get("localizedStringWithTranslationPreference")
+                or long_description.get("localizedString")
+                or ""
+            ).strip()
+            if html_text:
+                description_parts.append(
+                    html_lib.unescape(_TAG_RE.sub(" ", html_text)).strip()
+                )
+
+    # Older/alternate payloads expose the full modal copy as item HTML instead
+    # of longDescriptionHtml.
+    if not description_parts:
+        for d in _iter_dicts(data):
+            if d.get("modalTitle") != "About this space":
+                continue
+            section = d.get("section") or {}
+            for item in section.get("items") or []:
+                html_text = ((item.get("html") or {}).get("htmlText") or "").strip()
+                if html_text:
+                    description_parts.append(
+                        html_lib.unescape(_TAG_RE.sub(" ", html_text)).strip()
+                    )
+    if description_parts:
+        out["description"] = "\n\n".join(description_parts)
+
+    # Amenities and room-tour labels are embedded in the same GraphQL payload
+    # but are not part of the description section.
+    seen_amenities = set()
+    seen_room_tours = set()
+    for d in _iter_dicts(data):
+        if d.get("__typename") == "AmenityItemsGroup":
+            for amenity in d.get("amenities") or []:
+                if not isinstance(amenity, dict) or not amenity.get("available", True):
+                    continue
+                title = (amenity.get("title") or "").strip()
+                if title and title.casefold() not in seen_amenities:
+                    seen_amenities.add(title.casefold())
+                    out["amenities"].append(title)
+        elif d.get("__typename") == "RoomTourItem":
+            title = (d.get("title") or "").strip()
+            if title and title.casefold() not in seen_room_tours:
+                seen_room_tours.add(title.casefold())
+                out["room_tours"].append(title)
+
     # These scalar fields sit on the logging/sharing objects; a scan is simpler
     # and more robust than depending on a fixed section layout.
     for d in _iter_dicts(data):
@@ -1017,19 +1074,30 @@ async def get_listing_details_http(
     except Exception as e:
         print(f"   ⚠️ HTTP fetch failed for {listing_url}: {e}")
         return None
-    if resp.status_code != 200 or "data-deferred-state" not in resp.text:
+    if resp.status_code != 200:
+        print(
+            f"   ⚠️ Detail HTTP {resp.status_code} for {listing_url}"
+        )
+        return None
+    if "data-deferred-state" not in resp.text:
+        print(
+            f"   ⚠️ Detail HTTP response has no deferred state for {listing_url} "
+            f"(body={len(resp.text)} bytes)"
+        )
         return None
 
     m = _DEFERRED_STATE_RE.search(resp.text)
     if not m:
+        print(f"   ⚠️ Detail deferred state did not parse for {listing_url}")
         return None
     try:
         data = json.loads(m.group(1))
     except json.JSONDecodeError:
+        print(f"   ⚠️ Detail deferred state is invalid JSON for {listing_url}")
         return None
 
     details = _extract_pdp_details(m.group(1), data)
-    details["url"] = listing_url
+    details["url"] = normalize_listing_url(listing_url)
     if not harvest_photos:
         details["image_urls"] = details["image_urls"][:1]
     details["image_url"] = details["image_urls"][0] if details["image_urls"] else ""
@@ -1041,6 +1109,7 @@ async def get_listing_details_http(
         details["title"],
         details["description"],
         "Amenities: " + ", ".join(details["amenities"]) if details["amenities"] else "",
+        "Room tours: " + ", ".join(details["room_tours"]) if details["room_tours"] else "",
         "House rules: " + ". ".join(details["house_rules"]) if details["house_rules"] else "",
         details["room_type"],
     ]
@@ -1102,7 +1171,9 @@ async def _harvest_gallery_photos(page, max_photos: int = MAX_GALLERY_PHOTOS) ->
         return []
 
 
-async def get_listing_details_async(page, listing_url: str, harvest_photos: bool = True) -> dict:
+async def get_listing_details_async(
+    page, listing_url: str, harvest_photos: bool = True
+) -> Optional[dict]:
     """
     Async version: Extract comprehensive details from a single Airbnb listing page.
 
@@ -1117,7 +1188,7 @@ async def get_listing_details_async(page, listing_url: str, harvest_photos: bool
         Dictionary containing listing details
     """
     details = {
-        "url": listing_url,
+        "url": normalize_listing_url(listing_url),
         "title": "",
         "description": "",
         "amenities": [],
@@ -1149,7 +1220,8 @@ async def get_listing_details_async(page, listing_url: str, harvest_photos: bool
                 print("   ⚠️ Navigation timeout, continuing anyway...")
 
     if not loaded:
-        return details
+        print(f"   ⚠️ Browser detail page never rendered content for {listing_url}")
+        return None
 
     try:
         # Get title
@@ -1326,7 +1398,7 @@ async def scrape_listings_concurrent(
         nonlocal completed
         async with semaphore:
             try:
-                print(f"   Scraping listing {index + 1}/{len(listing_urls)}...")
+                print(f"   Loading listing {index + 1}/{len(listing_urls)}...")
 
                 # Fast path: plain HTTP + embedded JSON. No browser involved.
                 details = await get_listing_details_http(
@@ -1342,6 +1414,17 @@ async def scrape_listings_concurrent(
                         )
                     finally:
                         await page.close()
+
+                if not details:
+                    print(
+                        f"   ❌ Failed to load listing {index + 1}/{len(listing_urls)}"
+                    )
+                    return None
+
+                print(
+                    f"   ✅ Loaded listing {index + 1}/{len(listing_urls)}: "
+                    f"{details.get('title') or url}"
+                )
 
                 # Filter by max_price (post-check in case Airbnb didn't filter server-side)
                 if max_price and details.get("price") and details["price"] > max_price:
@@ -1450,6 +1533,7 @@ class AirbnbFilters(BaseModel):
     _progress: ProgressCallback | None = PrivateAttr(default=None)
     _query_image: bytes | None = PrivateAttr(default=None)
     _query_image_media_type: str | None = PrivateAttr(default=None)
+    _semantic_query: str | None = PrivateAttr(default=None)
     _listing_results: list[dict] = PrivateAttr(default_factory=list)
 
     @field_validator("checkin", "checkout", mode="before")
@@ -1489,10 +1573,9 @@ class FilterUpdate(BaseModel):
     keywords: Optional[list[str]] = Field(
         default=None,
         description=(
-            "Free-text keywords to add for features NOT in the amenities list. "
-            "Use this for anything Airbnb cannot filter structurally "
-            "(e.g. balcony, patio, sauna, ping pong, rooftop, ocean view). "
-            "Matched against listing page text after the amenity filter runs."
+            "Exact-match keywords already chosen by the user (search-form chips or an "
+            "explicit 'match this exact phrase' request). Do NOT invent keywords from "
+            "natural-language wants — those belong in smart_search_listings.query."
         ),
     )
     match_all_keywords: Optional[bool] = Field(default=None, description="Match ALL keywords instead of ANY")
@@ -1504,7 +1587,8 @@ class FilterUpdate(BaseModel):
             "gym, free_parking, ev_charger, crib, bbq_grill, breakfast, fireplace, "
             "workspace, tv, pets_allowed, smoking_allowed, wheelchair_accessible, "
             "elevator, beach_access, waterfront, self_checkin. "
-            "If the user asks for something not on this list (e.g. balcony), put it in keywords instead."
+            "Features not on this list must NOT be added here or as keywords; "
+            "pass them in smart_search_listings.query instead."
         ),
     )
     min_price: Optional[int] = Field(default=None, ge=0, description="Minimum price per night in USD")
@@ -1572,16 +1656,14 @@ def apply_filter_update(current: AirbnbFilters, update: FilterUpdate) -> AirbnbF
 
 
 def update_search_filters(ctx: RunContext[AirbnbFilters], filters: FilterUpdate) -> AirbnbFilters:
-    """Update the search form from criteria the user mentioned in conversation.
+    """Update the search form from structured criteria mentioned in conversation.
 
-    Call this whenever the user states or changes location, dates, budget, guests,
-    room type, amenities, keywords, or other filters in chat — even if you will
-    search immediately afterwards. Only include fields they actually mentioned.
-    Amenities and keywords are added to any values already on the form.
+    Call this for location, dates, budget, guests, room type, and known Airbnb
+    amenities — even if you will search immediately afterwards. Only include
+    fields they actually mentioned. List fields are merged with existing values.
 
-    Route features carefully:
-    - amenities: only known Airbnb amenity names from the amenities field description
-    - keywords: any other desired feature (balcony, patio, sauna, ocean view, etc.)
+    Do not invent keywords from chat. Keywords are only for form chips or an
+    explicit exact-match request; free-text wants go to smart_search_listings.
     """
     updated = apply_filter_update(ctx.deps, filters)
     for field_name, value in updated.model_dump().items():
@@ -1601,10 +1683,22 @@ async def run_search(
 ) -> AirbnbSearchResponse:
     """Execute an Airbnb search from structured parameters.
 
+    Identical Airbnb filters reuse a Turso-backed URL cache and hydrate listing
+    details from the DB so the SERP/detail scrape is skipped on cache hits.
+
     harvest_photos controls whether each listing's photo gallery is scraped for
     the full photo set. Defaults to True only when the photos will actually be
     used (vision reranking enabled or a reference image attached).
     """
+    from api.tools.embedding_search import store_listings
+    from api.tools.search_cache import (
+        clear_cached_urls,
+        get_cached_urls,
+        load_listings_by_urls,
+        scrape_filter_key,
+        set_cached_urls,
+    )
+
     if progress:
         await progress("Performing filter search")
     location = params.location
@@ -1668,38 +1762,189 @@ async def run_search(
     if keywords:
         print(f"📝 Custom Keywords: {keywords}")
 
-    # Reuse one browser/context for discovery and detail scraping. Starting a
-    # second browser is expensive and discards the warmed session.
-    # The browser is still needed to walk search results (infinite scroll), but
-    # listing detail pages go over plain HTTP, with browser pages as fallback.
-    http_client = httpx.AsyncClient(
-        headers={"User-Agent": _HTTP_UA, "Accept-Language": "en-US,en;q=0.9"},
-    )
-    try:
-        async with async_playwright() as p:
-            browser, context = await create_stealth_browser_async(p)
-            page = await context.new_page()
-            print("📄 Getting search results...")
-            listing_urls = await get_listing_urls_async(page, search_url, max_listings, max_pages)
-            await page.close()
-            print(f"   Total: {len(listing_urls)} listings found")
-            if listing_urls:
-                print("🔍 Scraping listing details (concurrent)...")
-                listings_data = await scrape_listings_concurrent(
-                    context,
-                    listing_urls,
-                    max_price,
-                    progress,
-                    harvest_photos=harvest_photos,
-                    http_client=http_client,
-                )
+    filter_key = scrape_filter_key(params, checkout=checkout)
+    listing_urls: list[str] = []
+    listings_data: list[dict] = []
+    cache_hit = False
+
+    async def _scrape_details(urls: list[str]) -> list[dict]:
+        """Scrape listing detail pages; retry once if every URL fails."""
+        if not urls:
+            return []
+        http_client = httpx.AsyncClient(
+            headers={"User-Agent": _HTTP_UA, "Accept-Language": "en-US,en;q=0.9"},
+        )
+        try:
+            async with async_playwright() as p:
+                browser, context = await create_stealth_browser_async(p)
+                try:
+                    scraped = await scrape_listings_concurrent(
+                        context,
+                        urls,
+                        max_price,
+                        progress,
+                        harvest_photos=harvest_photos,
+                        http_client=http_client,
+                    )
+                    if not scraped and urls:
+                        print(
+                            f"   ⚠️ Detail scrape returned 0/{len(urls)} listings — retrying once"
+                        )
+                        if progress:
+                            await progress("Retrying listing details")
+                        scraped = await scrape_listings_concurrent(
+                            context,
+                            urls,
+                            max_price,
+                            progress,
+                            harvest_photos=harvest_photos,
+                            http_client=http_client,
+                        )
+                finally:
+                    await browser.close()
+        finally:
+            await http_client.aclose()
+
+        for listing in scraped:
+            listing["city"] = listing.get("city") or location
+        return scraped
+
+    def _listings_by_url_order(urls: list[str], rows: list[dict]) -> list[dict]:
+        """Reassemble scraped rows in SERP order using canonical room URLs."""
+        by_url = {
+            normalize_listing_url(l.get("url")): l
+            for l in rows
+            if normalize_listing_url(l.get("url"))
+        }
+        ordered: list[dict] = []
+        for raw in urls:
+            norm = normalize_listing_url(raw)
+            if norm in by_url:
+                ordered.append(by_url[norm])
+        return ordered
+
+    cached_urls = get_cached_urls(filter_key)
+    if cached_urls is not None:
+        if progress:
+            await progress("Loading cached listings")
+        print(f"💾 Cache hit for filters ({len(cached_urls)} URLs) — loading from DB")
+        listings_data, missing = load_listings_by_urls(cached_urls)
+        # Vision needs fuller galleries; treat thin photo sets as missing.
+        if harvest_photos:
+            kept: list[dict] = []
+            for listing in listings_data:
+                if len(listing.get("image_urls") or []) < 2:
+                    missing.append(listing["url"])
+                else:
+                    kept.append(listing)
+            listings_data = kept
+        missing = list(dict.fromkeys(normalize_listing_url(u) for u in missing if u))
+        listing_urls = [normalize_listing_url(u) for u in cached_urls if normalize_listing_url(u)]
+        if not missing:
+            cache_hit = True
+            print(f"   ✓ Hydrated {len(listings_data)} listings from Turso (skipping scrape)")
+        else:
+            print(f"   ⚠️ Cache incomplete — scraping {len(missing)} missing listings")
+            scraped = await _scrape_details(missing)
+            by_url = {
+                normalize_listing_url(l.get("url")): l
+                for l in listings_data
+                if normalize_listing_url(l.get("url"))
+            }
+            for listing in scraped:
+                norm = normalize_listing_url(listing.get("url"))
+                if norm:
+                    by_url[norm] = listing
+            listings_data = _listings_by_url_order(listing_urls, list(by_url.values()))
+            if listings_data:
+                store_listings(listings_data)
+                set_cached_urls(filter_key, listing_urls, search_url=search_url)
+                cache_hit = True
             else:
+                # Poisoned cache: SERP URLs with no hydratable details.
+                print("   ⚠️ Clearing poisoned search cache (0 details after scrape)")
+                clear_cached_urls(filter_key)
+                listing_urls = []
                 listings_data = []
-            await browser.close()
-    finally:
-        await http_client.aclose()
+                cache_hit = False
+
+    if not cache_hit:
+        # Full scrape path: SERP discovery + concurrent detail pages.
+        http_client = httpx.AsyncClient(
+            headers={"User-Agent": _HTTP_UA, "Accept-Language": "en-US,en;q=0.9"},
+        )
+        try:
+            async with async_playwright() as p:
+                browser, context = await create_stealth_browser_async(p)
+                try:
+                    page = await context.new_page()
+                    print("📄 Getting search results...")
+                    listing_urls = await get_listing_urls_async(
+                        page, search_url, max_listings, max_pages
+                    )
+                    await page.close()
+                    listing_urls = [
+                        normalize_listing_url(u) for u in listing_urls if normalize_listing_url(u)
+                    ]
+                    print(f"   Total: {len(listing_urls)} listings found")
+                    if listing_urls:
+                        print("🔍 Scraping listing details (concurrent)...")
+                        listings_data = await scrape_listings_concurrent(
+                            context,
+                            listing_urls,
+                            max_price,
+                            progress,
+                            harvest_photos=harvest_photos,
+                            http_client=http_client,
+                        )
+                        if not listings_data:
+                            print(
+                                f"   ⚠️ Detail scrape returned 0/{len(listing_urls)} "
+                                "listings — retrying once"
+                            )
+                            if progress:
+                                await progress("Retrying listing details")
+                            listings_data = await scrape_listings_concurrent(
+                                context,
+                                listing_urls,
+                                max_price,
+                                progress,
+                                harvest_photos=harvest_photos,
+                                http_client=http_client,
+                            )
+                    else:
+                        listings_data = []
+                finally:
+                    await browser.close()
+        finally:
+            await http_client.aclose()
+
+        for listing in listings_data:
+            listing["city"] = listing.get("city") or location
+
+        listings_data = _listings_by_url_order(listing_urls, listings_data) or listings_data
+
+        if listing_urls and listings_data:
+            store_listings(listings_data)
+            set_cached_urls(filter_key, [l["url"] for l in listings_data], search_url=search_url)
+            print(f"💾 Cached {len(listings_data)} listing URLs for these filters")
+        elif listing_urls and not listings_data:
+            print(
+                f"   ⚠️ Airbnb returned {len(listing_urls)} search hits but detail "
+                "pages could not be loaded — not caching"
+            )
 
     if not listing_urls:
+        return AirbnbSearchResponse(
+            location=location,
+            checkin=checkin,
+            checkout=checkout,
+            nights=nights,
+            total=0,
+            listings=[],
+        )
+
+    if listing_urls and not listings_data:
         return AirbnbSearchResponse(
             location=location,
             checkin=checkin,
@@ -1736,7 +1981,7 @@ async def run_search(
         AirbnbListing(
             title=listing.get("title", ""),
             url=listing.get("url", ""),
-            city=params.location,
+            city=listing.get("city") or params.location,
             price=listing.get("price"),
             rating=listing.get("rating"),
             amenities=listing.get("amenities", []),
@@ -1805,31 +2050,19 @@ def format_listings_for_chat(
 
 async def search_airbnb(
     ctx: RunContext[AirbnbFilters],
-    keywords: Optional[list[str]] = None,
-    match_all_keywords: Optional[bool] = None,
 ) -> str:
     """
-    Search Airbnb and make structured listings available to the chat UI.
+    Search Airbnb with the structured filters already on the search form.
 
-    Location, dates, budget and the standard Airbnb filters come from the search
-    configuration passed with the run, so they are never parsed from conversation.
-    This tool only accepts free-text keywords the user mentioned in chat.
-
-    Args:
-        keywords: Optional free-text keywords that must appear in the listing page
-            text or amenities (e.g. ["sauna", "ping pong"]).
-        match_all_keywords: When True, a listing must contain ALL keywords to match.
-            When False (default), a listing matches if it contains ANY keyword.
+    Use this only for purely structured searches (location/dates/budget/amenities
+    and any keywords the user already set on the form). For natural-language
+    wants (balcony, vibe, style, etc.), prefer smart_search_listings instead —
+    do not invent keywords here.
 
     Returns:
         A short summary. Structured listing data is sent separately to the UI.
     """
     params = ctx.deps.model_copy(deep=True)
-    if keywords:
-        seen = set(params.keywords or [])
-        params.keywords = list(seen) + [k for k in keywords if k not in seen]
-    if match_all_keywords is not None:
-        params.match_all_keywords = match_all_keywords
 
     if not params.has_required():
         missing = [n for n in ("location", "checkin", "nights") if getattr(params, n) is None]

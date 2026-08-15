@@ -62,6 +62,12 @@ async def chat(request: ChatRequest):
     ]
     user_message = request.messages[-1].content
     deps = request.search or AirbnbFilters()
+    # Preserve the user's actual free-text request independently of the model's
+    # tool-call arguments. This prevents a semantic search from losing text when
+    # the model calls smart_search_listings with an empty/omitted query.
+    normalized_message = user_message.strip()
+    if normalized_message.casefold() not in {"", "updating airbnb filters"}:
+        deps._semantic_query = normalized_message
     before = form_snapshot(deps)
     user_prompt: str | list[str | BinaryContent] = user_message
     if request.image:

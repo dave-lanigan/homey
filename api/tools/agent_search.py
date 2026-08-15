@@ -52,6 +52,26 @@ def _format_results(results: list[SearchResult], top_k: int, city: str | None) -
     return "\n".join(lines).rstrip()
 
 
+def _listing_cards_from_filter(listings: list, top_k: int) -> list[dict]:
+    """Build UI listing cards from filter-scrape results (no semantic scores)."""
+    return [
+        {
+            "title": listing.title or "Untitled listing",
+            "url": listing.url,
+            "city": listing.city,
+            "price": listing.price,
+            "rating": listing.rating,
+            "description": listing.description,
+            "image_url": listing.image_url,
+            "image_urls": listing.image_urls,
+            "amenities": listing.amenities,
+            "house_rules": listing.house_rules,
+            "matched_keywords": listing.matched_keywords,
+        }
+        for listing in listings[:top_k]
+    ]
+
+
 async def smart_search_listings(
     ctx: RunContext[AirbnbFilters],
     query: str,
@@ -63,10 +83,14 @@ async def smart_search_listings(
     the listing photos).
 
     This runs the filter search configured in the search form (location, dates,
-    budget, amenities, keywords), then ranks the results against ``query`` using
-    embedding similarity. Enable ``use_vision`` when the user cares about features
-    that are only visible in photos (e.g. "ping pong table", "game room", "modern
-    decor").
+    budget, amenities, and any keywords the user already set on the form), then
+    ranks the results against ``query`` using embedding similarity. Prefer this
+    tool over search_airbnb whenever the user describes wants in natural language.
+    Put features like balcony, sauna, ocean view, modern, quiet, etc. in ``query``
+    — do not convert them into form keywords.
+
+    Enable ``use_vision`` when the user cares about features that are only visible
+    in photos (e.g. "ping pong table", "game room", "modern decor").
 
     Args:
         query: The user's free-text description of what they want (features, style,
@@ -90,9 +114,16 @@ async def smart_search_listings(
 
     top_k = max(1, params.top_k or DEFAULT_TOP_K)
     use_vision = use_vision or params.use_vision
-    query = (query or "").strip()
+    # Prefer the actual user message captured by the chat endpoint when the
+    # model omitted or mangled the tool argument.
+    query = (query or params._semantic_query or "").strip()
     if not query and params.keywords:
         query = ", ".join(params.keywords)
+    if not query and params.amenities:
+        # Form-only searches (e.g. UI "Updating Airbnb Filters") often omit a
+        # free-text description — rank against the selected amenities instead.
+        query = ", ".join(params.amenities)
+    print(f"   smart_search query={query!r} vision={use_vision}")
 
     try:
         # Step 1: scrape candidate listings via the existing filter search. Full
@@ -103,16 +134,45 @@ async def smart_search_listings(
             harvest_photos=bool(use_vision or params._query_image),
         )
         if not response.listings:
-            return _format_results([], top_k, params.location)
+            raise ModelRetry(
+                "Airbnb search returned no loadable listings for these filters "
+                f"({params.location}, {params.checkin}, {params.nights} nights). "
+                "The search may have matched homes but detail pages failed to load. "
+                "Call this tool again; if it still fails, suggest relaxing budget, "
+                "amenities, or dates."
+            )
+
+        # No text/image to rank with — return the filter scrape as-is.
+        if not query and not params._query_image:
+            params._listing_results = _listing_cards_from_filter(response.listings, top_k)
+            return (
+                f"Found {len(params._listing_results)} listings matching the search filters. "
+                "They are available in the interactive results viewer."
+            )
 
         # Step 2: cache listings + embeddings in SQLite (new URLs are embedded).
         await params.report_progress("Indexing listings")
         listings_data = [l.model_dump() for l in response.listings]
-        new_embeddings = await asyncio.to_thread(index_listings, listings_data)
+        try:
+            new_embeddings = await asyncio.to_thread(index_listings, listings_data)
+        except Exception as exc:
+            # Embeddings improve ordering, but must not turn valid filter
+            # matches into a zero-result search when the embedding API fails.
+            print(f"   ⚠️ Semantic indexing failed: {exc}")
+            params._listing_results = _listing_cards_from_filter(
+                response.listings, top_k
+            )
+            return (
+                f"Found {len(params._listing_results)} listings matching the "
+                "search filters. Semantic ranking was unavailable, so the "
+                "interactive results viewer shows the filter matches."
+            )
         print(f"   🧠 Indexed {new_embeddings} new embeddings ({len(listings_data)} listings cached)")
 
         # Step 3: multimodal embedding search — combine the description with the
         # user's reference image when one was attached to this chat turn.
+        # URL set already scopes to this scrape; do not also city-filter (city
+        # strings from Airbnb often disagree with the form location).
         await params.report_progress(
             "Comparing your image and description"
             if params._query_image
@@ -121,10 +181,10 @@ async def smart_search_listings(
         current_urls = {l["url"] for l in listings_data if l.get("url")}
         results = await asyncio.to_thread(
             search_listings,
-            query_text=query,
+            query_text=query or None,
             query_image_data=params._query_image,
             query_image_media_type=params._query_image_media_type,
-            city=params.location,
+            city=None,
             top_k=top_k * RERANK_MULTIPLIER,
             urls=current_urls,
         )
@@ -149,30 +209,41 @@ async def smart_search_listings(
 
         # Step 5: expose structured cards to the chat stream. Keep the tool return
         # short so the model does not duplicate listings as markdown.
-        params._listing_results = [
-            {
-                "title": result.title or "Untitled listing",
-                "url": result.url,
-                "city": result.city,
-                "price": result.price,
-                "rating": result.rating,
-                "description": result.description,
-                "image_url": result.image_url,
-                "image_urls": result.image_urls,
-                "amenities": result.amenities,
-                "house_rules": result.house_rules,
-                "match_score": result.similarity_score,
-                "vision_score": result.vision_score,
-            }
-            for result in results[:top_k]
-        ]
-        if not params._listing_results:
-            return _format_results([], top_k, params.location)
+        if results:
+            params._listing_results = [
+                {
+                    "title": result.title or "Untitled listing",
+                    "url": result.url,
+                    "city": result.city,
+                    "price": result.price,
+                    "rating": result.rating,
+                    "description": result.description,
+                    "image_url": result.image_url,
+                    "image_urls": result.image_urls,
+                    "amenities": result.amenities,
+                    "house_rules": result.house_rules,
+                    "match_score": result.similarity_score,
+                    "vision_score": result.vision_score,
+                }
+                for result in results[:top_k]
+            ]
+            return (
+                f"Found {len(params._listing_results)} matching listings. "
+                "They are available in the interactive results viewer."
+            )
+
+        # Embedding rank produced nothing (index miss, API blip, etc.) — still
+        # return the filter scrape so the user is not told there are zero homes.
+        print("   ⚠️ Semantic rank empty — falling back to filter scrape results")
+        params._listing_results = _listing_cards_from_filter(response.listings, top_k)
         return (
-            f"Found {len(params._listing_results)} matching listings. "
+            f"Found {len(params._listing_results)} listings matching the search filters "
+            "(semantic ranking unavailable, showing filter matches). "
             "They are available in the interactive results viewer."
         )
 
+    except ModelRetry:
+        raise
     except ValueError as e:
         raise ModelRetry(f"Search failed: {e}")
     except Exception as e:
