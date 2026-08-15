@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Build
+dist/
+build/
+
+# Local data
+api/data/
+
+# Scraper result output
+/out.json
+/airbnb_results.json
+/tokyo.json
