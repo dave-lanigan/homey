@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { isTextUIPart } from 'ai'
 import type { UIMessage } from 'ai'
-import { isPartStreaming } from '@nuxt/ui/utils/ai'
 import type { ListingResult } from '~~/shared/utils/search'
 import { Button } from '~/components/ui/button'
+
+function isPartStreaming(part: { state?: string }) {
+  return part.state === 'streaming'
+}
 
 const props = defineProps<{
   message: UIMessage
