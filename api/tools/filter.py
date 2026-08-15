@@ -528,7 +528,30 @@ def get_listing_urls(page, url: str, max_listings: int = 20, max_pages: int = 5)
     return all_listings
 
 
-async def get_listing_urls_async(page, url: str, max_listings: int = 20, max_pages: int = 5) -> list:
+_SERP_TOTAL_PRICE_RE = re.compile(
+    r"(?P<prices>(?:[$€£]\s?[\d,]+\s*)+).*?for\s+\d+\s+nights",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _extract_serp_total_price(card_text: str) -> int | None:
+    """Extract Airbnb's discounted stay total from a result card."""
+    match = _SERP_TOTAL_PRICE_RE.search(card_text)
+    if not match:
+        return None
+    prices = re.findall(r"[$€£]\s?([\d,]+)", match.group("prices"))
+    if not prices:
+        return None
+    return int(prices[-1].replace(",", ""))
+
+
+async def get_listing_urls_async(
+    page,
+    url: str,
+    max_listings: int = 20,
+    max_pages: int = 5,
+    total_prices: dict[str, int] | None = None,
+) -> list:
     """
     Async version: compile a list of listing URLs from search results pages with pagination.
 
@@ -636,6 +659,14 @@ async def get_listing_urls_async(page, url: str, max_listings: int = 20, max_pag
                 if base_url not in seen_urls:
                     seen_urls.add(base_url)
                     all_listings.append(base_url)
+                    if total_prices is not None:
+                        card_text = await link.evaluate(
+                            """el => el.closest('[role="group"]')?.innerText
+                            || el.parentElement?.innerText || ''"""
+                        )
+                        total = _extract_serp_total_price(card_text)
+                        if total is not None:
+                            total_prices[base_url] = total
                     page_listings += 1
                     if len(all_listings) >= max_listings:
                         print(f"   ✓ Reached max_listings ({max_listings})")
@@ -1463,6 +1494,7 @@ class AirbnbListing(BaseModel):
     url: str = Field(default="", description="Link to the Airbnb listing")
     city: str = Field(default="", description="City / location searched for")
     price: Optional[int] = Field(default=None, description="Nightly price in USD")
+    total_price: Optional[int] = Field(default=None, description="Total stay price in USD")
     rating: Optional[float] = Field(default=None, description="Host rating (1-5)")
     amenities: list[str] = Field(default_factory=list, description="Amenities found on the listing")
     house_rules: list[str] = Field(default_factory=list, description="House rules for the listing")
@@ -1765,6 +1797,7 @@ async def run_search(
     filter_key = scrape_filter_key(params, checkout=checkout)
     listing_urls: list[str] = []
     listings_data: list[dict] = []
+    total_prices: dict[str, int] = {}
     cache_hit = False
 
     async def _scrape_details(urls: list[str]) -> list[dict]:
@@ -1880,7 +1913,11 @@ async def run_search(
                     page = await context.new_page()
                     print("📄 Getting search results...")
                     listing_urls = await get_listing_urls_async(
-                        page, search_url, max_listings, max_pages
+                        page,
+                        search_url,
+                        max_listings,
+                        max_pages,
+                        total_prices=total_prices,
                     )
                     await page.close()
                     listing_urls = [
@@ -1921,6 +1958,9 @@ async def run_search(
 
         for listing in listings_data:
             listing["city"] = listing.get("city") or location
+            listing["total_price"] = listing.get("total_price") or total_prices.get(
+                normalize_listing_url(listing.get("url"))
+            )
 
         listings_data = _listings_by_url_order(listing_urls, listings_data) or listings_data
 
@@ -1983,6 +2023,7 @@ async def run_search(
             url=listing.get("url", ""),
             city=listing.get("city") or params.location,
             price=listing.get("price"),
+            total_price=listing.get("total_price"),
             rating=listing.get("rating"),
             amenities=listing.get("amenities", []),
             house_rules=listing.get("house_rules", []),
@@ -2080,6 +2121,7 @@ async def search_airbnb(
             "url": listing.url,
             "city": listing.city,
             "price": listing.price,
+            "total_price": listing.total_price,
             "rating": listing.rating,
             "description": listing.description,
             "image_url": listing.image_url,

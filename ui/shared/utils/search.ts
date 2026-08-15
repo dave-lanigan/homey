@@ -32,6 +32,7 @@ export interface ListingResult {
   url: string
   city?: string
   price?: number | null
+  total_price?: number | null
   rating?: number | null
   description?: string
   image_url?: string | null

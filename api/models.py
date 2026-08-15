@@ -19,6 +19,7 @@ class Listing(SQLModel, table=True):
     city: str = ""
     description: str = ""
     price: float | None = None
+    total_price: float | None = None
     rating: float | None = None
     amenities: str = "[]"
     house_rules: str = "[]"

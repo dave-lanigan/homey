@@ -70,6 +70,9 @@ function formatPercent(value?: number | null) {
               </div>
 
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <strong v-if="listing.total_price != null">
+                  ${{ Math.round(listing.total_price) }} total
+                </strong>
                 <strong v-if="listing.price != null">${{ Math.round(listing.price) }}/night</strong>
                 <span v-if="listing.rating != null" class="text-muted-foreground">
                   ★ {{ listing.rating }}

@@ -163,6 +163,7 @@ def load_listings_by_urls(urls: list[str]) -> tuple[list[dict], list[str]]:
                 "city": row.city,
                 "description": row.description,
                 "price": row.price,
+                "total_price": row.total_price,
                 "rating": row.rating,
                 "amenities": json.loads(row.amenities or "[]"),
                 "house_rules": json.loads(row.house_rules or "[]"),

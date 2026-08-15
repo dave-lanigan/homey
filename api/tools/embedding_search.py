@@ -45,6 +45,7 @@ class SearchResult:
     similarity_score: float
     description: str = ""
     price: Optional[float] = None
+    total_price: Optional[float] = None
     rating: Optional[float] = None
     amenities: list[str] = field(default_factory=list)
     house_rules: list[str] = field(default_factory=list)
@@ -86,6 +87,7 @@ def store_listings(listings: list[dict]) -> int:
                 "city": l.get("city", ""),
                 "description": l.get("description", ""),
                 "price": l.get("price"),
+                "total_price": l.get("total_price"),
                 "rating": l.get("rating"),
                 "amenities": json.dumps(l.get("amenities") or []),
                 "house_rules": json.dumps(l.get("house_rules") or []),
@@ -228,6 +230,7 @@ def load_indexed_listings() -> list[dict]:
                 "city": listing.city,
                 "description": listing.description,
                 "price": listing.price,
+                "total_price": listing.total_price,
                 "rating": listing.rating,
                 "amenities": json.loads(listing.amenities),
                 "house_rules": json.loads(listing.house_rules),
@@ -595,6 +598,7 @@ def search_listings(
                 similarity_score=similarity,
                 description=listing["description"],
                 price=listing.get("price"),
+                total_price=listing.get("total_price"),
                 rating=listing.get("rating"),
                 amenities=listing.get("amenities") or [],
                 house_rules=listing.get("house_rules") or [],

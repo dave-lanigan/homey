@@ -39,7 +39,7 @@ agent = Agent(
         filter_listings_tool,
         smart_search_listings_tool,
     ],
-    capabilities=[hooks],
+    #capabilities=[hooks],
 )
 
 
@@ -47,9 +47,10 @@ agent = Agent(
 def summarize_search_criteria(ctx: RunContext[AirbnbFilters]) -> str:
     """Summarize the user's search criteria."""
     return """
-    If the user has given you enough search parameters for a search,
-    regardless of the input from the user, you should summarize the currently giving search criteria
-    and ask if the user is ready for a search.
+    The injected AirbnbFilters values are already the user's active search
+    criteria. Do not ask whether the user is ready when all required fields are
+    present; use the appropriate search tool when the user submits or requests a
+    search. Ask only for fields that are actually missing.
     """
 
 
@@ -61,6 +62,17 @@ def add_filters_to_context(ctx: RunContext[AirbnbFilters]) -> str:
         return "The user has not set any search filters yet."
     lines = [f"- {key}: {value}" for key, value in values.items()]
     return "The user's current search filters are:\n" + "\n".join(lines)
+
+
+@agent.instructions
+def treat_form_state_as_authoritative(ctx: RunContext[AirbnbFilters]) -> str:
+    """Prevent the agent from treating injected form state as conversation memory."""
+    return """
+    The AirbnbFilters dependency is authoritative application state supplied by
+    the search form. It is not conversation memory and must not be described as
+    unavailable. Never tell the user that you cannot remember or that they need
+    to repeat filters that appear in the current search state.
+    """
 
 
 @agent.instructions

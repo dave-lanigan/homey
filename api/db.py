@@ -8,6 +8,7 @@ from contextlib import contextmanager
 
 import turso_serverless
 from dotenv import load_dotenv
+from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -48,6 +49,14 @@ def init_db() -> None:
     from api import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    # SQLModel.create_all does not add columns to an existing Turso table.
+    with engine.connect() as connection:
+        try:
+            connection.execute(text("ALTER TABLE listings ADD COLUMN total_price FLOAT"))
+            connection.commit()
+        except Exception:
+            # The column already exists on upgraded databases.
+            connection.rollback()
     _schema_ready = True
 
 
