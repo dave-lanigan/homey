@@ -23,6 +23,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
+# Airbnb scrape uses Chromium via Playwright.
+RUN uv run playwright install --with-deps chromium
+
 COPY api/ ./api/
 COPY --from=ui /ui/.output/public ./ui/.output/public
 
