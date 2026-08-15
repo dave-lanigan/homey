@@ -6,6 +6,8 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
   ssr: false,
+  // One app-level .env at the repo root (not ui/.env).
+  envDir: '..',
   modules: [
     '@clerk/nuxt',
     'shadcn-nuxt',

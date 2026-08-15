@@ -16,6 +16,10 @@ ENV NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
     NUXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in \
     NUXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 
+# Fail fast: Cloud Build must pass --build-arg NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+RUN test -n "$NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
+    || (echo "NUXT_PUBLIC_CLERK_PUBLISHABLE_KEY build-arg is required" >&2 && exit 1)
+
 RUN bun run generate
 
 # ---- API runtime ----
