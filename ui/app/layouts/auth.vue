@@ -17,7 +17,7 @@ function toggleColorMode() {
 
     <header class="relative z-10 flex items-center justify-between px-4 sm:px-6 h-14">
       <NuxtLink to="/" class="flex items-end gap-1.5 text-foreground">
-        <Logo class="h-7 w-auto shrink-0 text-primary" />
+        <Logo class="h-7 w-auto shrink-0 text-foreground" />
         <span class="text-lg font-bold tracking-tight">Homey</span>
       </NuxtLink>
 

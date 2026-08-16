@@ -10,14 +10,7 @@ const searchForm = ref<{ close: () => void } | null>(null)
 
 const { createChat } = useChats()
 
-const greeting = computed(() => {
-  const hour = new Date().getHours()
-  let timeGreeting = 'Good evening'
-  if (hour < 12) timeGreeting = 'Good morning'
-  else if (hour < 18) timeGreeting = 'Good afternoon'
-
-  return timeGreeting
-})
+const greeting = "Hey, there."
 
 async function createNewChat(prompt: string, image?: string | null) {
   input.value = prompt
@@ -71,10 +64,13 @@ const quickChats = [
     <Navbar />
 
     <div class="flex-1 flex flex-col justify-center items-center overflow-y-auto px-4 py-20 bg-background/50">
-      <div class="max-w-3xl w-full flex flex-col gap-6 sm:gap-8">
-        <h1 class="text-3xl sm:text-4xl text-foreground font-extrabold tracking-tight">
+      <div class="max-w-3xl w-full flex flex-col gap-7 sm:gap-9">
+        <div class="space-y-2">
+          <p class="text-xs font-bold uppercase tracking-[0.22em] text-primary">Find a place to feel at home</p>
+          <h1 class="text-3xl sm:text-5xl text-foreground font-extrabold tracking-tight">
           {{ greeting }}
-        </h1>
+          </h1>
+        </div>
 
         <!-- Custom Chat Prompt -->
         <ChatPrompt

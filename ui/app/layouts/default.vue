@@ -66,12 +66,12 @@ onUnmounted(() => {
 <template>
   <div class="h-screen w-screen flex bg-background text-foreground overflow-hidden">
     <!-- Desktop Sidebar -->
-    <aside class="hidden lg:flex flex-col w-64 border-r border-border/40 bg-sidebar shrink-0 h-full p-4 justify-between select-none">
+    <aside class="hidden lg:flex flex-col w-64 border-r border-sidebar-border/70 bg-sidebar shrink-0 h-full p-5 justify-between select-none">
       <div class="flex flex-col gap-6 min-h-0">
         <!-- Logo Header -->
-        <NuxtLink to="/" class="flex items-end gap-1.5 px-2">
-          <Logo class="h-8 w-auto shrink-0 text-primary" />
-          <span class="text-xl font-bold tracking-tight text-foreground">Homey</span>
+        <NuxtLink to="/" class="flex items-center gap-2 px-2">
+          <Logo class="h-6 w-6 shrink-0 text-foreground" />
+          <span class="text-xl font-bold tracking-tight text-foreground">Homey<span class="text-primary">.</span></span>
         </NuxtLink>
 
         <!-- Main Navigation Links -->
@@ -79,7 +79,7 @@ onUnmounted(() => {
           <Button
             variant="ghost"
             as-child
-            class="w-full justify-start h-9 px-3 hover:bg-sidebar-accent"
+            class="w-full justify-start h-10 px-3 hover:bg-sidebar-accent"
           >
             <NuxtLink to="/">
               <Icon name="i-lucide-circle-plus" class="mr-2 h-4 w-4 text-muted-foreground" />
@@ -92,7 +92,7 @@ onUnmounted(() => {
 
           <Button
             variant="ghost"
-            class="w-full justify-start h-9 px-3 hover:bg-sidebar-accent text-muted-foreground hover:text-foreground"
+            class="w-full justify-start h-10 px-3 hover:bg-sidebar-accent text-muted-foreground hover:text-foreground"
             @click="searchOpen = true"
           >
             <Icon name="i-lucide-search" class="mr-2 h-4 w-4" />
@@ -113,7 +113,7 @@ onUnmounted(() => {
               <div
                 v-for="item in group.items"
                 :key="item.id"
-                class="group relative flex items-center justify-between rounded-lg hover:bg-sidebar-accent/80 transition-all"
+                class="group relative flex items-center justify-between rounded-xl hover:bg-sidebar-accent/80 transition-all"
                 :class="route.params.id === item.id ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground'"
               >
                 <NuxtLink :to="`/chat/${item.id}`" class="flex-1 flex items-center gap-2 px-3 py-2 text-sm truncate min-w-0 pr-10">
@@ -156,11 +156,11 @@ onUnmounted(() => {
             <Icon name="i-lucide-menu" class="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" class="p-4 w-64 bg-sidebar flex flex-col justify-between h-full">
+        <SheetContent side="left" class="p-5 w-72 bg-sidebar flex flex-col justify-between h-full">
           <div class="flex flex-col gap-6 min-h-0 h-full">
-            <NuxtLink to="/" class="flex items-end gap-1.5 px-2" @click="sidebarOpen = false">
-              <Logo class="h-8 w-auto shrink-0 text-primary" />
-              <span class="text-xl font-bold tracking-tight text-foreground">Homey</span>
+            <NuxtLink to="/" class="flex items-center gap-2 px-2" @click="sidebarOpen = false">
+              <Logo class="h-6 w-6 shrink-0 text-foreground" />
+              <span class="text-xl font-bold tracking-tight text-foreground">Homey<span class="text-primary">.</span></span>
             </NuxtLink>
 
             <nav class="space-y-1">
@@ -179,14 +179,14 @@ onUnmounted(() => {
 
             <div class="flex-1 overflow-y-auto min-h-0 pr-1 space-y-4">
               <div v-for="group in groups" :key="group.id" class="space-y-1">
-                <h3 class="text-[10px] font-bold text-muted-foreground/60 px-3 uppercase tracking-wider">
+            <h3 class="text-[10px] font-bold text-muted-foreground/70 px-3 uppercase tracking-[0.18em]">
                   {{ group.label }}
                 </h3>
                 <div class="space-y-px">
                   <div
                     v-for="item in group.items"
                     :key="item.id"
-                    class="group relative flex items-center justify-between rounded-lg hover:bg-sidebar-accent/80 transition-all"
+                    class="group relative flex items-center justify-between rounded-xl hover:bg-sidebar-accent/80 transition-all"
                     :class="route.params.id === item.id ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground'"
                   >
                     <NuxtLink :to="`/chat/${item.id}`" class="flex-1 flex items-center gap-2 px-3 py-2 text-sm truncate min-w-0 pr-10" @click="sidebarOpen = false">
@@ -234,8 +234,8 @@ onUnmounted(() => {
 
     <!-- Command/Search Dialog -->
     <Dialog v-model:open="searchOpen">
-      <DialogContent class="max-w-lg p-0 overflow-hidden bg-popover text-popover-foreground shadow-lg border border-border rounded-lg">
-        <DialogHeader class="p-4 border-b border-border">
+      <DialogContent class="max-w-lg p-0 overflow-hidden bg-popover text-popover-foreground shadow-card border border-border/80 rounded-3xl">
+        <DialogHeader class="p-5 border-b border-border/70">
           <DialogTitle class="text-sm font-semibold text-muted-foreground">Search chats</DialogTitle>
           <div class="mt-2 relative flex items-center">
             <Icon name="i-lucide-search" class="absolute left-3 h-4 w-4 text-muted-foreground" />

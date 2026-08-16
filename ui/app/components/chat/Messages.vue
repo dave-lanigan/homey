@@ -40,8 +40,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div ref="scrollContainer" class="flex-1 overflow-y-auto px-4 py-6 space-y-6 min-h-0">
-    <div class="max-w-3xl mx-auto w-full space-y-6">
+  <div ref="scrollContainer" class="flex-1 overflow-y-auto px-4 py-8 space-y-7 min-h-0 bg-background">
+    <div class="max-w-3xl mx-auto w-full space-y-7">
       <div
         v-for="(msg, index) in messages"
         :key="msg.id"
@@ -55,7 +55,7 @@ onMounted(() => {
             name="i-lucide-user"
             class="h-4 w-4 text-muted-foreground"
           />
-          <Logo v-else class="h-5 w-5" />
+          <Logo v-else class="h-5 w-5 text-muted-foreground" />
           <span class="text-xs font-semibold text-muted-foreground">
             {{ msg.role === 'user' ? 'You' : 'Homey' }}
           </span>
@@ -63,8 +63,8 @@ onMounted(() => {
 
         <!-- Content Box -->
         <div
-          class="max-w-full rounded-2xl p-4 text-base border border-border/60"
-          :class="msg.role === 'user' ? 'bg-secondary text-secondary-foreground rounded-tr-none' : 'bg-card text-foreground rounded-tl-none'"
+          class="max-w-full rounded-3xl p-4 text-base border border-border/60 shadow-soft"
+          :class="msg.role === 'user' ? 'bg-secondary text-secondary-foreground rounded-tr-md' : 'bg-card text-foreground rounded-tl-md'"
         >
           <!-- Active Search Filters Header -->
           <div

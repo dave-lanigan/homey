@@ -21,10 +21,10 @@ function formatPercent(value?: number | null) {
 <template>
   <Dialog :open="true" @update:open="open => !open && close()">
     <DialogScrollContent
-      class="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0"
+      class="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-3xl border-border/80 p-0 shadow-card"
     >
-      <DialogHeader class="shrink-0 border-b border-border bg-background p-6">
-        <DialogTitle>Listing results</DialogTitle>
+      <DialogHeader class="shrink-0 border-b border-border/70 bg-background p-6">
+        <DialogTitle class="text-2xl">Places that feel like home</DialogTitle>
         <DialogDescription>
           {{ listings.length }} {{ listings.length === 1 ? 'listing' : 'listings' }} matched your search.
         </DialogDescription>
@@ -35,7 +35,7 @@ function formatPercent(value?: number | null) {
           <article
             v-for="(listing, index) in listings"
             :key="listing.url || index"
-            class="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+            class="overflow-hidden rounded-3xl border border-border/70 bg-card shadow-soft transition-all duration-500 hover:-translate-y-1 hover:shadow-card"
           >
             <div class="aspect-[4/3] bg-muted">
               <img
@@ -58,7 +58,7 @@ function formatPercent(value?: number | null) {
                   </h3>
                   <span
                     v-if="formatPercent(listing.match_score)"
-                    class="shrink-0 rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary"
+                    class="shrink-0 rounded-full bg-accent px-2.5 py-1 text-xs font-semibold text-accent-foreground"
                   >
                     {{ formatPercent(listing.match_score) }}
                   </span>
@@ -90,7 +90,7 @@ function formatPercent(value?: number | null) {
                 <span
                   v-for="amenity in listing.amenities.slice(0, 5)"
                   :key="amenity"
-                  class="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+                  class="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"
                 >
                   {{ amenity }}
                 </span>

@@ -202,7 +202,7 @@ onMounted(() => {
       </template>
     </Navbar>
 
-    <div class="flex-1 flex flex-col min-h-0 pt-14 bg-background">
+    <div class="flex-1 flex flex-col min-h-0 pt-16 bg-background">
       <!-- Scrollable Message List -->
       <ChatMessages
         :messages="messages"
@@ -232,7 +232,7 @@ onMounted(() => {
       </ChatMessages>
 
       <!-- Bottom Form & Input Area -->
-      <div class="border-t border-border/40 p-4 bg-background/80 backdrop-blur">
+      <div class="border-t border-border/60 p-4 bg-background/80 backdrop-blur-md">
         <div class="max-w-3xl mx-auto w-full space-y-3">
           <ChatPrompt
             v-model="input"

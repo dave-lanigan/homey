@@ -109,7 +109,7 @@ function toggleAmenity(value: string) {
 </script>
 
 <template>
-  <section class="border border-border rounded-xl bg-card p-3 shadow-sm">
+  <section class="border border-border/80 rounded-3xl bg-card/90 p-4 shadow-soft">
     <div class="flex items-center justify-between gap-2">
       <button
         class="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -117,7 +117,7 @@ function toggleAmenity(value: string) {
         @click="open = !open"
       >
         <Icon name="i-lucide-sliders-horizontal" class="w-4 h-4" />
-        Search details
+        Refine your stay
         <Icon
           :name="open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
           class="w-4 h-4 transition-transform"

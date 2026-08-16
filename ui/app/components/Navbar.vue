@@ -9,7 +9,7 @@ function toggleColorMode() {
 </script>
 
 <template>
-  <header class="absolute top-0 inset-x-0 h-14 border-b border-border/40 z-10 backdrop-blur bg-background/80 flex items-center justify-between pl-14 pr-4 lg:px-4">
+  <header class="absolute top-0 inset-x-0 h-16 border-b border-border/60 z-10 backdrop-blur-md bg-background/80 flex items-center justify-between pl-14 pr-4 lg:px-6">
     <div class="flex items-center gap-3 min-w-0">
       <slot name="title" />
     </div>
@@ -17,7 +17,7 @@ function toggleColorMode() {
     <div class="flex items-center gap-2">
       <slot />
 
-      <Button variant="ghost" size="icon" @click="toggleColorMode" aria-label="Toggle theme">
+      <Button variant="ghost" size="icon" class="rounded-full" @click="toggleColorMode" aria-label="Toggle theme">
         <Icon :name="colorMode.value === 'dark' ? 'i-lucide-moon' : 'i-lucide-sun'" class="h-4 w-4" />
       </Button>
 

@@ -75,7 +75,7 @@ function copy() {
           size="icon"
           variant="ghost"
           class="h-8 w-8"
-          :class="vote === true ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'"
+          :class="vote === true ? 'text-positive' : 'text-muted-foreground'"
           aria-label="Good response"
           @click="emit('vote', message, true)"
         >
@@ -93,7 +93,7 @@ function copy() {
           size="icon"
           variant="ghost"
           class="h-8 w-8"
-          :class="vote === false ? 'text-red-600 dark:text-red-500' : 'text-muted-foreground'"
+          :class="vote === false ? 'text-negative' : 'text-muted-foreground'"
           aria-label="Bad response"
           @click="emit('vote', message, false)"
         >

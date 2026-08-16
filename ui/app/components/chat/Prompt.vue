@@ -61,7 +61,7 @@ function handleBtnClick() {
 </script>
 
 <template>
-  <div class="relative border border-border rounded-xl bg-card p-2 shadow-sm transition-all focus-within:ring-1 focus-within:ring-ring/50 focus-within:border-ring/40 flex flex-col gap-2">
+  <div class="relative border border-border/80 rounded-3xl bg-card p-2 shadow-card transition-all focus-within:ring-2 focus-within:ring-ring/30 focus-within:border-ring/60 flex flex-col gap-2">
     <!-- Image Attachment Thumbnail Preview -->
     <div v-if="image" class="px-3 pt-2 flex flex-wrap gap-2">
       <div class="relative w-16 h-16 rounded-lg overflow-hidden border border-border group bg-background">
@@ -70,7 +70,7 @@ function handleBtnClick() {
           type="button"
           size="icon"
           variant="destructive"
-          class="absolute top-1 right-1 h-5 w-5 rounded-full shadow-md bg-red-600 hover:bg-red-700"
+          class="absolute top-1 right-1 h-5 w-5 rounded-full shadow-md bg-destructive hover:bg-destructive/90"
           @click="removeImage"
         >
           <Icon name="i-lucide-x" class="h-3 w-3 text-white" />
@@ -81,7 +81,7 @@ function handleBtnClick() {
     <Textarea
       v-model="model"
       :disabled="disabled"
-      placeholder="Type your message here..."
+      placeholder="Describe your ideal getaway…"
       class="w-full bg-transparent border-none shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 p-3 min-h-[80px] resize-none text-base"
       @keydown="onKeydown"
     />
@@ -118,7 +118,7 @@ function handleBtnClick() {
           type="button"
           size="icon"
           variant="default"
-          class="h-8 w-8 rounded-lg shrink-0 transition-all"
+          class="h-9 w-9 rounded-full shrink-0 transition-all"
           :disabled="status !== 'streaming' && (!model.trim() && !image && !hasSearch) || disabled"
           @click="handleBtnClick"
         >

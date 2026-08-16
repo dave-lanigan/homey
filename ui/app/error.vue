@@ -19,7 +19,7 @@ useHead({
 </script>
 
 <template>
-  <div class="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-4">
+  <div class="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-6">
     <div class="max-w-md text-center space-y-4">
       <h1 class="text-6xl font-extrabold tracking-tight">{{ error?.statusCode || 404 }}</h1>
       <h2 class="text-2xl font-bold tracking-tight">{{ error?.statusMessage || 'An error occurred' }}</h2>
