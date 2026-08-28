@@ -31,13 +31,13 @@ function formatPercent(value?: number | null) {
       </DialogHeader>
 
       <div class="min-h-0 flex-1 overflow-y-auto">
-        <div class="grid gap-5 p-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid grid-cols-1 gap-0 p-0">
           <article
             v-for="(listing, index) in listings"
             :key="listing.url || index"
-            class="overflow-hidden rounded-3xl border border-border/70 bg-card shadow-soft transition-all duration-500 hover:-translate-y-1 hover:shadow-card"
+            class="overflow-hidden bg-card"
           >
-            <div class="aspect-[4/3] bg-muted">
+            <div class="aspect-[4/3] w-full bg-muted sm:aspect-[16/7]">
               <img
                 v-if="listing.image_url"
                 :src="listing.image_url"
@@ -53,7 +53,7 @@ function formatPercent(value?: number | null) {
             <div class="space-y-3 p-4">
               <div>
                 <div class="mb-1 flex items-start justify-between gap-3">
-                  <h3 class="line-clamp-2 font-semibold leading-snug">
+                  <h3 class="font-semibold leading-snug">
                     {{ listing.title || 'Untitled listing' }}
                   </h3>
                   <span
