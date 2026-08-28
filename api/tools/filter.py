@@ -39,7 +39,7 @@ from urllib.parse import urlencode, urlparse, parse_qs, urljoin
 
 import httpx
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, PrivateAttr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 from pydantic_ai import ModelRetry, RunContext, Tool
 from playwright.async_api import async_playwright
 from playwright.sync_api import sync_playwright
@@ -160,8 +160,8 @@ class AirbnbSearchFilter(BaseModel):
     min_bathrooms: Optional[int] = Field(None, ge=1, description="Minimum bathrooms")
 
     # Price filters
-    min_price: Optional[int] = Field(None, ge=0, description="Minimum price per night")
-    max_price: Optional[int] = Field(None, ge=0, description="Maximum price per night")
+    min_price: Optional[int] = Field(None, ge=0, description="Minimum total stay price")
+    max_price: Optional[int] = Field(None, ge=0, description="Maximum total stay price")
 
     # Rating filter
     min_rating: Optional[float] = Field(None, ge=1.0, le=5.0, description="Minimum host rating")
@@ -199,18 +199,16 @@ class AirbnbSearchFilter(BaseModel):
 
         # Date parameters
         if self.checkin:
-            params["checkin"] = self.checkin
+            params["check_in"] = self.checkin
         if self.checkout:
-            params["checkout"] = self.checkout
+            params["check_out"] = self.checkout
 
         # Guest count
         params["adults"] = self.guests
 
-        # Price parameters
-        if self.min_price is not None:
-            params["price_min"] = self.min_price
-        if self.max_price is not None:
-            params["price_max"] = self.max_price
+        # Airbnb's price_min/price_max filters apply per night. The application
+        # treats these as total-stay bounds, so enforce them from the dated SERP
+        # totals instead of sending an incompatible server-side constraint.
 
         # Room type filter
         if self.room_type:
@@ -277,8 +275,8 @@ def build_search_url(
         checkin: Check-in date (YYYY-MM-DD)
         checkout: Check-out date (YYYY-MM-DD)
         guests: Number of guests
-        min_price: Minimum price per night
-        max_price: Maximum price per night
+        min_price: Minimum total stay price
+        max_price: Maximum total stay price
         amenities: List of amenity IDs
         room_type: Room type string
         superhost: Only superhosts
@@ -320,6 +318,25 @@ def build_search_url(
         min_bathrooms=min_bathrooms,
     )
     return filter_obj.build_url()
+
+
+def _listing_url_for_dates(
+    listing_url: str,
+    checkin: str | None,
+    checkout: str | None,
+    guests: int,
+) -> str:
+    """Add Airbnb's date/guest parameters before fetching a detail page."""
+    if not checkin or not checkout:
+        return listing_url
+    parsed = urlparse(listing_url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query.update({
+        "check_in": [checkin],
+        "check_out": [checkout],
+        "adults": [str(guests)],
+    })
+    return parsed._replace(query=urlencode(query, doseq=True)).geturl()
 
 
 def resolve_amenity_ids(amenity_names: Optional[list]) -> Optional[list]:
@@ -503,7 +520,7 @@ def get_listing_urls(page, url: str, max_listings: int = 20, max_pages: int = 5)
         page_listings = 0
         for link in links:
             href = link.get_attribute("href")
-            if href and "/rooms/" in href:
+            if href and "/rooms/" in href and not _link_is_similar_date_result(link):
                 # Clean up the URL
                 if href.startswith("/"):
                     href = "https://www.airbnb.com" + href
@@ -533,6 +550,74 @@ _SERP_TOTAL_PRICE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+def _link_is_similar_date_result(link) -> bool:
+    """Return True when a SERP link belongs to Airbnb's alternative-date module."""
+    try:
+        return bool(link.evaluate(
+            """el => {
+                const ownText = (el.innerText || '').trim();
+                let node = el;
+                for (let depth = 0; node && depth < 8; depth++, node = node.parentElement) {
+                    const text = (node.innerText || '').trim();
+                    // The heading is normally on a section/region ancestor rather
+                    // than on the individual result card.
+                    const heading = node.querySelector('h2, h3, [role="heading"]');
+                    const headingText = heading ? (heading.innerText || '') : '';
+                    if (text.length > ownText.length + 20 && text.length <= 5000 &&
+                        (headingText.length > 0 || node.getAttribute('aria-label')) &&
+                        /(?:available|showing|stays?)\\s+(?:for\\s+)?similar\\s+dates?|similar\\s+dates?\\s+(?:available|options|listings)/i.test(text)) {
+                        return true;
+                    }
+                }
+                return false;
+            }"""
+        ))
+    except Exception:
+        return False
+
+
+async def _link_is_similar_date_result_async(link) -> bool:
+    """Async Playwright counterpart of ``_link_is_similar_date_result``."""
+    try:
+        return bool(await link.evaluate(
+            """el => {
+                const ownText = (el.innerText || '').trim();
+                let node = el;
+                for (let depth = 0; node && depth < 8; depth++, node = node.parentElement) {
+                    const text = (node.innerText || '').trim();
+                    const heading = node.querySelector('h2, h3, [role="heading"]');
+                    const headingText = heading ? (heading.innerText || '') : '';
+                    if (text.length > ownText.length + 20 && text.length <= 5000 &&
+                        (headingText.length > 0 || node.getAttribute('aria-label')) &&
+                        /(?:available|showing|stays?)\\s+(?:for\\s+)?similar\\s+dates?|similar\\s+dates?\\s+(?:available|options|listings)/i.test(text)) {
+                        return true;
+                    }
+                }
+                return false;
+            }"""
+        ))
+    except Exception:
+        return False
+
+
+async def _link_is_dated_search_result(link, nights: int) -> bool:
+    """Require a compact primary SERP card with the requested stay length."""
+    try:
+        return bool(await link.evaluate(
+            """(el, nights) => {
+                const nightsRe = new RegExp(`for\\\\s+${nights}\\\\s+nights?`, 'i');
+                let node = el;
+                for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+                    const text = (node.innerText || '').trim();
+                    if (text.length <= 2000 && nightsRe.test(text)) return true;
+                }
+                return false;
+            }""",
+            nights,
+        ))
+    except Exception:
+        return False
+
 
 def _extract_serp_total_price(card_text: str) -> int | None:
     """Extract Airbnb's discounted stay total from a result card."""
@@ -545,12 +630,27 @@ def _extract_serp_total_price(card_text: str) -> int | None:
     return int(prices[-1].replace(",", ""))
 
 
+def _filter_by_total_price(
+    listings: list[dict], min_price: int | None, max_price: int | None
+) -> list[dict]:
+    """Keep only listings whose dated SERP total satisfies the price bounds."""
+    if min_price is None and max_price is None:
+        return listings
+    return [
+        listing for listing in listings
+        if listing.get("total_price") is not None
+        and (min_price is None or listing["total_price"] >= min_price)
+        and (max_price is None or listing["total_price"] <= max_price)
+    ]
+
+
 async def get_listing_urls_async(
     page,
     url: str,
     max_listings: int = 20,
     max_pages: int = 5,
     total_prices: dict[str, int] | None = None,
+    nights: int | None = None,
 ) -> list:
     """
     Async version: compile a list of listing URLs from search results pages with pagination.
@@ -652,7 +752,12 @@ async def get_listing_urls_async(
         page_listings = 0
         for link in links:
             href = await link.get_attribute("href")
-            if href and "/rooms/" in href:
+            if (
+                href
+                and "/rooms/" in href
+                and not await _link_is_similar_date_result_async(link)
+                and (nights is None or await _link_is_dated_search_result(link, nights))
+            ):
                 if href.startswith("/"):
                     href = "https://www.airbnb.com" + href
                 base_url = normalize_listing_url(href)
@@ -719,6 +824,9 @@ def get_listing_details(page, listing_url: str) -> dict:
         title_el = page.query_selector("h1")
         if title_el:
             details["title"] = title_el.inner_text()
+        meta_title = page.get_attribute("meta[property='og:description']", "content")
+        if meta_title:
+            details["title"] = meta_title.strip()
 
         # Extract nightly price (usually in header or booking panel)
         try:
@@ -776,8 +884,13 @@ def get_listing_details(page, listing_url: str) -> dict:
             except Exception:
                 pass
 
-            details["image_urls"] = image_urls
-            details["image_url"] = image_urls[0] if image_urls else ""
+            cover_url = page.get_attribute("meta[property='og:image']", "content")
+            details["image_urls"] = _filter_photo_srcs(
+                [cover_url, *image_urls] if cover_url else image_urls
+            )
+            details["image_url"] = (
+                details["image_urls"][0] if details["image_urls"] else ""
+            )
         except Exception:
             pass  # Image extraction is optional
 
@@ -887,6 +1000,10 @@ _RATING_RE = re.compile(r'"guestSatisfactionOverall":([\d.]+)')
 _REVIEW_COUNT_RE = re.compile(r'"visibleReviewCount":"?([\d,]+)"?')
 _META_DESC_RE = re.compile(r'"metaDescription":"((?:[^"\\]|\\.)*)"')
 _META_TITLE_RE = re.compile(r'"title":"((?:[^"\\]|\\.)*?)\s+-\s+')
+_OG_IMAGE_RE = re.compile(
+    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
+    re.IGNORECASE,
+)
 _PRICE_RE = re.compile(
     r'[$€£]\s?([\d,]+)\s*(?:per night|/night)|"priceString":"\$?([\d,]+)', re.IGNORECASE
 )
@@ -966,7 +1083,7 @@ def _extract_pdp_details(raw: str, data: dict) -> dict:
         for section in sections:
             sec = section.get("section") or {}
             tname = sec.get("__typename")
-            if tname == "PdpTitleSection" and not out["title"]:
+            if tname == "PdpTitleSection":
                 title = sec.get("title")
                 if title:
                     out["title"] = title
@@ -1075,6 +1192,19 @@ def _extract_pdp_details(raw: str, data: dict) -> dict:
                 seen_room_tours.add(title.casefold())
                 out["room_tours"].append(title)
 
+    for d in _iter_dicts(data):
+        if d.get("__typename") != "StayEmbedData":
+            continue
+        name = (d.get("name") or "").strip()
+        if name:
+            out["title"] = name
+        picture_url = d.get("pictureUrl")
+        if picture_url:
+            out["image_urls"] = _filter_photo_srcs(
+                [picture_url, *out["image_urls"]]
+            )
+        break
+
     # These scalar fields sit on the logging/sharing objects; a scan is simpler
     # and more robust than depending on a fixed section layout.
     for d in _iter_dicts(data):
@@ -1129,6 +1259,12 @@ async def get_listing_details_http(
 
     details = _extract_pdp_details(m.group(1), data)
     details["url"] = normalize_listing_url(listing_url)
+    cover_match = _OG_IMAGE_RE.search(resp.text)
+    if cover_match:
+        cover_url = html_lib.unescape(cover_match.group(1))
+        details["image_urls"] = _filter_photo_srcs(
+            [cover_url, *details["image_urls"]]
+        )
     if not harvest_photos:
         details["image_urls"] = details["image_urls"][:1]
     details["image_url"] = details["image_urls"][0] if details["image_urls"] else ""
@@ -1259,6 +1395,11 @@ async def get_listing_details_async(
         title_el = await page.query_selector("h1")
         if title_el:
             details["title"] = await title_el.inner_text()
+        meta_title = await page.get_attribute(
+            "meta[property='og:description']", "content"
+        )
+        if meta_title:
+            details["title"] = meta_title.strip()
 
         # One body-text snapshot feeds price, rating and the house-rules parsing
         # below — each inner_text() call is a full-DOM round trip to the browser.
@@ -1291,8 +1432,15 @@ async def get_listing_details_async(
             else:
                 srcs = await page.eval_on_selector_all("img", "els => els.map(e => e.src)")
                 image_urls = _filter_photo_srcs(srcs)
-            details["image_urls"] = image_urls
-            details["image_url"] = image_urls[0] if image_urls else ""
+            cover_url = await page.get_attribute(
+                "meta[property='og:image']", "content"
+            )
+            details["image_urls"] = _filter_photo_srcs(
+                [cover_url, *image_urls] if cover_url else image_urls
+            )
+            details["image_url"] = (
+                details["image_urls"][0] if details["image_urls"] else ""
+            )
         except Exception:
             pass  # Image extraction is optional
 
@@ -1524,6 +1672,8 @@ class AirbnbFilters(BaseModel):
     the tool via RunContext — the model never sees or parses them from text.
     """
 
+    model_config = ConfigDict(validate_assignment=True)
+
     location: Optional[str] = Field(default=None, description="Location to search (e.g., 'Lima, Peru')")
     checkin: Optional[str] = Field(default=None, description="Check-in date (YYYY-MM-DD)")
     nights: Optional[int] = Field(default=None, ge=1, description="Number of nights; checkout = checkin + nights")
@@ -1540,8 +1690,9 @@ class AirbnbFilters(BaseModel):
         default=None,
         description="Airbnb amenity names from the known set (e.g. pool, gym, wifi, workspace)",
     )
-    min_price: Optional[int] = Field(default=None, ge=0, description="Minimum price per night in USD")
-    max_price: Optional[int] = Field(default=None, ge=0, description="Maximum price per night in USD")
+    min_price: Optional[int] = Field(default=None, ge=0, description="Minimum total stay price in USD")
+    max_price: Optional[int] = Field(default=None, ge=0, description="Maximum total stay price in USD")
+    min_rating: Optional[float] = Field(default=None, ge=1.0, le=5.0, description="Minimum host rating")
     guests: int = Field(default=1, ge=1, le=16, description="Number of guests")
     room_type: RoomTypeName = Field(default="apartment", description="Room type")
     superhost: bool = Field(default=False, description="Only Superhost listings")
@@ -1623,8 +1774,9 @@ class FilterUpdate(BaseModel):
             "pass them in smart_search_listings.query instead."
         ),
     )
-    min_price: Optional[int] = Field(default=None, ge=0, description="Minimum price per night in USD")
-    max_price: Optional[int] = Field(default=None, ge=0, description="Maximum price per night in USD")
+    min_price: Optional[int] = Field(default=None, ge=0, description="Minimum total stay price in USD")
+    max_price: Optional[int] = Field(default=None, ge=0, description="Maximum total stay price in USD")
+    min_rating: Optional[float] = Field(default=None, ge=1.0, le=5.0, description="Minimum host rating")
     guests: Optional[int] = Field(default=None, ge=1, le=16, description="Number of guests")
     room_type: Optional[RoomTypeName] = Field(default=None, description="Room type")
     superhost: Optional[bool] = Field(default=None, description="Only Superhost listings")
@@ -1656,6 +1808,7 @@ _FORM_KEYS = frozenset({
     "amenities",
     "min_price",
     "max_price",
+    "min_rating",
     "guests",
     "room_type",
     "superhost",
@@ -1741,6 +1894,7 @@ async def run_search(
     match_all_keywords = params.match_all_keywords
     amenities = params.amenities
     max_price = params.max_price
+    min_rating = params.min_rating
     min_price = params.min_price
     guests = params.guests
     room_type = params.room_type
@@ -1804,6 +1958,10 @@ async def run_search(
         """Scrape listing detail pages; retry once if every URL fails."""
         if not urls:
             return []
+        dated_urls = [
+            _listing_url_for_dates(url, checkin, checkout, guests)
+            for url in urls
+        ]
         http_client = httpx.AsyncClient(
             headers={"User-Agent": _HTTP_UA, "Accept-Language": "en-US,en;q=0.9"},
         )
@@ -1813,22 +1971,22 @@ async def run_search(
                 try:
                     scraped = await scrape_listings_concurrent(
                         context,
-                        urls,
-                        max_price,
+                        dated_urls,
+                        None,
                         progress,
                         harvest_photos=harvest_photos,
                         http_client=http_client,
                     )
-                    if not scraped and urls:
+                    if not scraped and dated_urls:
                         print(
-                            f"   ⚠️ Detail scrape returned 0/{len(urls)} listings — retrying once"
+                            f"   ⚠️ Detail scrape returned 0/{len(dated_urls)} listings — retrying once"
                         )
                         if progress:
                             await progress("Retrying listing details")
                         scraped = await scrape_listings_concurrent(
                             context,
-                            urls,
-                            max_price,
+                            dated_urls,
+                            None,
                             progress,
                             harvest_photos=harvest_photos,
                             http_client=http_client,
@@ -1856,7 +2014,11 @@ async def run_search(
                 ordered.append(by_url[norm])
         return ordered
 
-    cached_urls = get_cached_urls(filter_key)
+    # Stay totals come from the dated SERP cards and are not persisted with a
+    # date-independent listing record, so price-filtered searches must rescan it.
+    cached_urls = (
+        None if min_price is not None or max_price is not None else get_cached_urls(filter_key)
+    )
     if cached_urls is not None:
         if progress:
             await progress("Loading cached listings")
@@ -1873,9 +2035,21 @@ async def run_search(
             listings_data = kept
         missing = list(dict.fromkeys(normalize_listing_url(u) for u in missing if u))
         listing_urls = [normalize_listing_url(u) for u in cached_urls if normalize_listing_url(u)]
-        if not missing:
-            cache_hit = True
-            print(f"   ✓ Hydrated {len(listings_data)} listings from Turso (skipping scrape)")
+        # Cached detail rows are date-independent, so never return them directly.
+        # Re-fetch every cached URL with this search's dates and guests instead.
+        if listing_urls:
+            print(
+                f"   ⚠️ Revalidating {len(listing_urls)} cached listings for requested dates"
+            )
+            listings_data = await _scrape_details(listing_urls)
+            if listings_data:
+                store_listings(listings_data)
+                set_cached_urls(filter_key, listing_urls, search_url=search_url)
+                cache_hit = True
+            else:
+                clear_cached_urls(filter_key)
+                listing_urls = []
+                listings_data = []
         else:
             print(f"   ⚠️ Cache incomplete — scraping {len(missing)} missing listings")
             scraped = await _scrape_details(missing)
@@ -1918,6 +2092,7 @@ async def run_search(
                         max_listings,
                         max_pages,
                         total_prices=total_prices,
+                        nights=nights,
                     )
                     await page.close()
                     listing_urls = [
@@ -1926,25 +2101,29 @@ async def run_search(
                     print(f"   Total: {len(listing_urls)} listings found")
                     if listing_urls:
                         print("🔍 Scraping listing details (concurrent)...")
+                        dated_listing_urls = [
+                            _listing_url_for_dates(u, checkin, checkout, guests)
+                            for u in listing_urls
+                        ]
                         listings_data = await scrape_listings_concurrent(
                             context,
-                            listing_urls,
-                            max_price,
+                            dated_listing_urls,
+                            None,
                             progress,
                             harvest_photos=harvest_photos,
                             http_client=http_client,
                         )
                         if not listings_data:
                             print(
-                                f"   ⚠️ Detail scrape returned 0/{len(listing_urls)} "
+                                f"   ⚠️ Detail scrape returned 0/{len(dated_listing_urls)} "
                                 "listings — retrying once"
                             )
                             if progress:
                                 await progress("Retrying listing details")
                             listings_data = await scrape_listings_concurrent(
                                 context,
-                                listing_urls,
-                                max_price,
+                                dated_listing_urls,
+                                None,
                                 progress,
                                 harvest_photos=harvest_photos,
                                 http_client=http_client,
@@ -1963,6 +2142,8 @@ async def run_search(
             )
 
         listings_data = _listings_by_url_order(listing_urls, listings_data) or listings_data
+        listings_data = _filter_by_total_price(listings_data, min_price, max_price)
+        listing_urls = [listing["url"] for listing in listings_data]
 
         if listing_urls and listings_data:
             store_listings(listings_data)
@@ -1994,6 +2175,8 @@ async def run_search(
             listings=[],
         )
 
+    listings_data = _filter_by_total_price(listings_data, min_price, max_price)
+
     # Step 3: filter by custom keywords
     if keywords:
         if progress:
@@ -2003,6 +2186,13 @@ async def run_search(
         print(f"✅ Found {len(listings_data)} matching listings")
     else:
         print(f"✅ Found {len(listings_data)} listings")
+
+    # Apply an explicit rating threshold; unrated listings do not satisfy it.
+    if min_rating is not None:
+        listings_data = [
+            listing for listing in listings_data
+            if listing.get("rating") is not None and listing["rating"] >= min_rating
+        ]
 
     # Step 4: volume-based default filtering
     if len(listings_data) > LISTINGS_THRESHOLD:
@@ -2020,7 +2210,7 @@ async def run_search(
     listings = [
         AirbnbListing(
             title=listing.get("title", ""),
-            url=listing.get("url", ""),
+            url=_listing_url_for_dates(listing.get("url", ""), checkin, checkout, guests),
             city=listing.get("city") or params.location,
             price=listing.get("price"),
             total_price=listing.get("total_price"),
@@ -2201,8 +2391,8 @@ def build_parser():
     parser.add_argument("--max-pages", type=int, default=5, help="Max search result pages to scrape")
 
     # Price filters
-    parser.add_argument("--min-price", type=int, default=None, help="Minimum price per night")
-    parser.add_argument("--max-price", type=int, default=None, help="Maximum price per night")
+    parser.add_argument("--min-price", type=int, default=None, help="Minimum total stay price")
+    parser.add_argument("--max-price", type=int, default=None, help="Maximum total stay price")
 
     # Built-in Airbnb filters
     parser.add_argument(

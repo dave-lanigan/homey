@@ -21,6 +21,9 @@ from api.tools.listing_urls import normalize_listing_url
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
 SEARCH_CACHE_TTL_HOURS = max(0, int(os.getenv("SEARCH_CACHE_TTL_HOURS", "24")))
+# Increment whenever the SERP extraction semantics change. This prevents URL
+# sets collected with older (for example, date-less) requests from being reused.
+SEARCH_CACHE_VERSION = 2
 
 # Params that change which Airbnb SERP / listing set is returned.
 # Keywords are applied after the scrape, so they are not part of the key.
@@ -34,6 +37,7 @@ _SCRAPE_KEY_FIELDS = (
     "amenities",
     "min_price",
     "max_price",
+    "min_rating",
     "superhost",
     "instant_book",
     "self_checkin",
@@ -47,7 +51,7 @@ _SCRAPE_KEY_FIELDS = (
 
 def scrape_filter_key(params, *, checkout: str | None = None) -> str:
     """Stable hash of the structured filters that drive Airbnb scraping."""
-    payload = {}
+    payload = {"version": SEARCH_CACHE_VERSION}
     for field in _SCRAPE_KEY_FIELDS:
         value = getattr(params, field, None)
         if field == "checkout" and checkout is not None:

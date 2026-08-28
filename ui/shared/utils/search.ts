@@ -8,6 +8,7 @@ export interface SearchParams {
   amenities?: string[] | null
   min_price?: number | null
   max_price?: number | null
+  min_rating?: number | null
   guests?: number | null
   room_type?: string | null
   superhost?: boolean
@@ -89,6 +90,7 @@ export function toSearchPayload(search: SearchParams | null | undefined): Record
   if (search.nights != null) out.nights = search.nights
   if (search.min_price != null) out.min_price = search.min_price
   if (search.max_price != null) out.max_price = search.max_price
+  if (search.min_rating != null) out.min_rating = search.min_rating
   if (search.guests != null) out.guests = search.guests
   if (search.room_type) out.room_type = search.room_type
   if (search.amenities?.length) out.amenities = search.amenities

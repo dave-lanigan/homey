@@ -26,7 +26,7 @@ function close() {
 
 defineExpose({ close })
 
-function numField(key: 'nights' | 'min_price' | 'max_price' | 'guests') {
+function numField(key: 'nights' | 'min_price' | 'max_price' | 'min_rating' | 'guests') {
   return computed<string>({
     get: () => (model.value[key] as number | null | undefined) == null ? '' : String(model.value[key]),
     set: (v: string) => { model.value[key] = v === '' ? null : Number(v) }
@@ -35,6 +35,7 @@ function numField(key: 'nights' | 'min_price' | 'max_price' | 'guests') {
 
 const nights = numField('nights')
 const maxPrice = numField('max_price')
+const minRating = numField('min_rating')
 const guests = numField('guests')
 
 const keywordInput = ref('')
@@ -56,7 +57,7 @@ function removeKeyword(kw: string) {
 
 const hasValues = computed(() => {
   const p = model.value
-  return !!(p.location || p.checkin || p.nights != null || p.min_price != null || p.max_price != null
+  return !!(p.location || p.checkin || p.nights != null || p.min_price != null || p.max_price != null || p.min_rating != null
     || p.guests != null || p.room_type || (p.amenities?.length) || (p.keywords?.length)
     || p.superhost || p.instant_book || p.self_checkin || p.match_all_keywords || p.use_vision)
 })
@@ -114,6 +115,7 @@ function toggleAmenity(value: string) {
       <button
         class="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
         type="button"
+        :aria-expanded="open"
         @click="open = !open"
       >
         <Icon name="i-lucide-sliders-horizontal" class="w-4 h-4" />
@@ -136,7 +138,14 @@ function toggleAmenity(value: string) {
       </Button>
     </div>
 
-    <div v-show="open" class="grid gap-3 pt-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div
+      class="grid transition-[grid-template-rows,opacity] duration-300 ease-out"
+      :class="open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'"
+      :inert="!open"
+      :aria-hidden="!open"
+    >
+      <div class="grid min-h-0 overflow-hidden">
+        <div class="grid gap-3 pt-3 sm:grid-cols-2 lg:grid-cols-3">
       <!-- Location Autocomplete -->
       <ChatLocationAutocomplete v-model="model.location" />
 
@@ -171,7 +180,7 @@ function toggleAmenity(value: string) {
           v-model="maxPrice"
           type="number"
           min="0"
-          placeholder="Max price / night"
+          placeholder="Max total price"
           class="pl-7 h-9 w-full bg-background"
         />
       </div>
@@ -189,6 +198,17 @@ function toggleAmenity(value: string) {
           </SelectGroup>
         </SelectContent>
       </Select>
+
+      <!-- Minimum Rating -->
+      <Input
+        v-model="minRating"
+        type="number"
+        min="1"
+        max="5"
+        step="0.1"
+        placeholder="Minimum rating"
+        class="h-9 w-full bg-background"
+      />
 
       <!-- Guests Count -->
       <Input
@@ -310,6 +330,8 @@ function toggleAmenity(value: string) {
         <div class="flex items-center space-x-2">
           <Checkbox id="use_vision" v-model:checked="model.use_vision" />
           <label for="use_vision" class="text-sm font-medium leading-none cursor-pointer select-none text-muted-foreground hover:text-foreground">Vision re-rank</label>
+        </div>
+      </div>
         </div>
       </div>
     </div>
