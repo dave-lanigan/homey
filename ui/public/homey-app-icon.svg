@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <title>Homey app icon</title>
+  <rect width="512" height="512" fill="#eaac8b"/>
+  <g transform="translate(-32 -26) scale(3)">
+    <path d="M43 86 91 41c3-3 7-3 10 0l48 45c4 4 1 10-4 10h-5v42c0 5-4 8-9 8h-29v-27H90v27H61c-5 0-8-3-8-8V96h-6c-6 0-8-6-4-10Z" fill="#fff8f6"/>
+    <rect x="123" y="55" width="16" height="31" rx="4" fill="#fff8f6"/>
+    <path d="M86 146v-27c0-5 4-9 9-9h3c5 0 9 4 9 9v27Z" fill="#eaac8b"/>
+    <path d="M96 98C90 93 82 88 82 80c0-7 8-10 14-3 6-7 14-4 14 3 0 8-8 13-14 18Z" fill="#eaac8b"/>
+  </g>
+</svg>

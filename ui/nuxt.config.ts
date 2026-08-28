@@ -48,7 +48,7 @@ export default defineNuxtConfig({
       name: 'Homey',
       short_name: 'Homey',
       description: 'Your friendly AI Airbnb assistant — find the perfect stay.',
-      theme_color: '#355070',
+      theme_color: '#eaac8b',
       background_color: '#ffffff',
       display: 'standalone',
       orientation: 'portrait-primary',
