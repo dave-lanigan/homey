@@ -41,7 +41,11 @@ onMounted(() => {
 
 <template>
   <div ref="scrollContainer" class="flex-1 overflow-y-auto px-4 py-8 space-y-7 min-h-0 bg-background">
-    <div class="max-w-3xl mx-auto w-full space-y-7">
+    <TransitionGroup
+      name="message"
+      tag="div"
+      class="max-w-3xl mx-auto w-full space-y-7"
+    >
       <div
         v-for="(msg, index) in messages"
         :key="msg.id"
@@ -144,7 +148,30 @@ onMounted(() => {
           <slot name="actions" :message="msg" />
         </div>
       </div>
-
-    </div>
+    </TransitionGroup>
   </div>
 </template>
+
+<style scoped>
+.message-enter-active {
+  transition:
+    opacity 260ms ease-out,
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.message-enter-from {
+  opacity: 0;
+  transform: translateY(14px) scale(0.985);
+}
+
+.message-move {
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-enter-active,
+  .message-move {
+    transition-duration: 0.01ms;
+  }
+}
+</style>

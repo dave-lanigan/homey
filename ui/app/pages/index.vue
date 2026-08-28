@@ -76,6 +76,8 @@ const quickChats = [
         <ChatPrompt
           v-model="input"
           v-model:image="attachedImage"
+          class="chat-composer-transition"
+          style="view-transition-name: chat-composer"
           :disabled="loading"
           :has-search="!!search.location"
           @submit="onSubmit"

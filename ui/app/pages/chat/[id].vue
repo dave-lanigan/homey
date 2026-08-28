@@ -237,6 +237,8 @@ onMounted(() => {
           <ChatPrompt
             v-model="input"
             v-model:image="attachedImage"
+            class="chat-composer-transition"
+            style="view-transition-name: chat-composer"
             :disabled="isStreaming"
             :status="status"
             :has-search="!!search.location"

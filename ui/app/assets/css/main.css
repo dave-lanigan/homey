@@ -154,3 +154,31 @@ html.dark .shiki span {
   font-weight: var(--shiki-dark-font-weight) !important;
   text-decoration: var(--shiki-dark-text-decoration) !important;
 }
+
+::view-transition-group(chat-composer) {
+  animation-duration: 480ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(root) {
+  animation: 180ms ease-out both chat-page-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 360ms 80ms ease-out both chat-page-fade-in;
+}
+
+@keyframes chat-page-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes chat-page-fade-in {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(root),
+  ::view-transition-group(chat-composer) {
+    animation-duration: 0.01ms !important;
+  }
+}

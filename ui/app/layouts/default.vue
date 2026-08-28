@@ -20,6 +20,17 @@ const { renameChat, deleteChat } = useChatActions()
 
 const activeModal = useState<any>('active-modal', () => ({ type: null }))
 
+const desktopSidebarOpen = ref(true)
+const desktopSidebarTrigger = ref<{ $el: HTMLElement } | null>(null)
+const desktopSidebarClose = ref<{ $el: HTMLElement } | null>(null)
+
+async function setDesktopSidebarOpen(open: boolean) {
+  desktopSidebarOpen.value = open
+  await nextTick()
+  const target = open ? desktopSidebarClose.value : desktopSidebarTrigger.value
+  target?.$el.focus()
+}
+
 // Mobile sidebar open state
 const sidebarOpen = ref(false)
 
@@ -66,13 +77,36 @@ onUnmounted(() => {
 <template>
   <div class="h-screen w-screen flex bg-background text-foreground overflow-hidden">
     <!-- Desktop Sidebar -->
-    <aside class="hidden lg:flex flex-col w-64 border-r border-sidebar-border/70 bg-sidebar shrink-0 h-full p-5 justify-between select-none">
-      <div class="flex flex-col gap-6 min-h-0">
+    <aside
+      class="hidden h-full shrink-0 overflow-hidden bg-sidebar transition-[width,border-color] duration-500 ease-in-out motion-reduce:transition-none lg:block"
+      :class="desktopSidebarOpen ? 'w-64 border-r border-sidebar-border/70' : 'w-0 border-r-0 border-transparent'"
+      :inert="!desktopSidebarOpen"
+    >
+      <div
+        class="flex h-full min-h-0 w-64 flex-col gap-6 p-5 transition-[transform,opacity] duration-500 ease-in-out motion-reduce:transition-none select-none"
+        :style="{
+          transform: desktopSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+          opacity: desktopSidebarOpen ? '1' : '0',
+        }"
+      >
         <!-- Logo Header -->
-        <NuxtLink to="/" class="flex items-center gap-2 px-2">
-          <Logo class="h-6 w-6 shrink-0 text-foreground" />
-          <span class="text-xl font-bold tracking-tight text-foreground">Homey<span class="text-primary">.</span></span>
-        </NuxtLink>
+        <div class="flex items-center justify-between">
+          <NuxtLink to="/" class="flex items-center gap-2 px-2">
+            <Logo class="h-6 w-6 shrink-0 text-foreground" />
+            <span class="text-xl font-bold tracking-tight text-foreground">Homey<span class="text-primary">.</span></span>
+          </NuxtLink>
+          <Button
+            ref="desktopSidebarClose"
+            variant="ghost"
+            size="icon"
+            class="h-8 w-8 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+            aria-label="Hide chat history"
+            title="Hide chat history"
+            @click="setDesktopSidebarOpen(false)"
+          >
+            <Icon name="i-lucide-panel-left-close" class="h-4 w-4" />
+          </Button>
+        </div>
 
         <!-- Main Navigation Links -->
         <nav class="space-y-1">
@@ -147,6 +181,21 @@ onUnmounted(() => {
         </div>
       </div>
     </aside>
+
+    <Button
+      ref="desktopSidebarTrigger"
+      variant="ghost"
+      size="icon"
+      class="absolute left-4 top-2.5 z-50 hidden h-9 w-9 text-foreground transition-opacity duration-200 hover:bg-accent motion-reduce:transition-none lg:inline-flex"
+      :class="desktopSidebarOpen ? 'pointer-events-none opacity-0' : 'opacity-100'"
+      :aria-hidden="desktopSidebarOpen"
+      :tabindex="desktopSidebarOpen ? -1 : 0"
+      aria-label="Show chat history"
+      title="Show chat history"
+      @click="setDesktopSidebarOpen(true)"
+    >
+      <Icon name="i-lucide-panel-left-open" class="h-5 w-5" />
+    </Button>
 
     <!-- Mobile Header/Sidebar Toggle -->
     <div class="lg:hidden absolute top-2.5 left-4 z-50">
