@@ -14,7 +14,7 @@ hooks = Hooks()
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.7-flash"
 
 provider = GoogleProvider(api_key=os.getenv("GOOGLE_API_KEY"))
 model = GoogleModel(MODEL, provider=provider)
