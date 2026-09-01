@@ -110,7 +110,7 @@ function toggleAmenity(value: string) {
 </script>
 
 <template>
-  <section class="border border-border/80 rounded-3xl bg-card/90 p-4 shadow-soft">
+  <section class="rounded-3xl bg-card p-4 shadow-soft">
     <div class="flex items-center justify-between gap-2">
       <button
         class="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"

@@ -61,7 +61,7 @@ function handleBtnClick() {
 </script>
 
 <template>
-  <div class="relative border border-border/80 rounded-3xl bg-card p-2 shadow-card transition-all focus-within:ring-2 focus-within:ring-ring/30 focus-within:border-ring/60 flex flex-col gap-2">
+  <div class="relative rounded-3xl bg-card p-2 shadow-card transition-all focus-within:ring-2 focus-within:ring-ring/30 flex flex-col gap-2">
     <!-- Image Attachment Thumbnail Preview -->
     <div v-if="image" class="px-3 pt-2 flex flex-wrap gap-2">
       <div class="relative w-16 h-16 rounded-lg overflow-hidden border border-border group bg-background">
